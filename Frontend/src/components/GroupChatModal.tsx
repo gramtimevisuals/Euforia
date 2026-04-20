@@ -10,8 +10,21 @@ export default function GroupChatModal({ onClose }: GroupChatModalProps) {
   const [newMessage, setNewMessage] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [userName, setUserName] = useState('');
+  const [warningCount, setWarningCount] = useState(0);
+  const [showWarning, setShowWarning] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const abusiveWords = [
+    'slut', 'whore', 'bitch', 'cunt', 'fuck you', 'asshole', 'bastard', 'damn you',
+    'stupid', 'idiot', 'moron', 'retard', 'kill yourself', 'die', 'hate you',
+    'ugly', 'fat', 'loser', 'worthless', 'pathetic', 'disgusting'
+  ];
+
+  const checkForAbusiveContent = (message: string): boolean => {
+    const lowerMessage = message.toLowerCase();
+    return abusiveWords.some(word => lowerMessage.includes(word));
+  };
 
   useEffect(() => {
     // Get user info from token
@@ -69,8 +82,27 @@ export default function GroupChatModal({ onClose }: GroupChatModalProps) {
 
   const sendMessage = () => {
     if (newMessage.trim() && socketRef.current && isConnected) {
+      // Check for abusive content
+      if (checkForAbusiveContent(newMessage)) {
+        const newWarningCount = warningCount + 1;
+        setWarningCount(newWarningCount);
+        setShowWarning(true);
+        
+        if (newWarningCount >= 3) {
+          // Block account after 3 warnings
+          alert('Your account has been temporarily suspended for violating community guidelines.');
+          onClose();
+          return;
+        }
+        
+        setTimeout(() => setShowWarning(false), 5000);
+        setNewMessage('');
+        return;
+      }
+      
       const token = localStorage.getItem('token');
-      const avatar = localStorage.getItem('avatar_url');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const avatar = user.avatar_url || localStorage.getItem('avatar_url');
       socketRef.current.emit('send-global-message', {
         user: userName || 'Anonymous',
         message: newMessage.trim(),
@@ -101,17 +133,19 @@ export default function GroupChatModal({ onClose }: GroupChatModalProps) {
           ) : (
             messages.map((msg) => (
               <div key={msg.id} className={`flex items-start space-x-2 ${msg.user === userName ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                <div className="w-6 h-6 bg-gradient-to-r from-[#A31818] to-[#CF0E0E] rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  {msg.avatar ? (
+                <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  {msg.avatar && msg.avatar !== 'null' && msg.avatar !== '' ? (
                     <img 
                       src={msg.avatar} 
                       alt={msg.user} 
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover rounded-full"
                     />
                   ) : (
-                    <span className="text-[#FFFFFF] text-xs font-bold">
-                      {msg.user?.[0]?.toUpperCase()}
-                    </span>
+                    <div className="w-full h-full bg-gradient-to-r from-[#A31818] to-[#CF0E0E] rounded-full flex items-center justify-center">
+                      <span className="text-[#FFFFFF] text-xs font-bold">
+                        {msg.user?.[0]?.toUpperCase()}
+                      </span>
+                    </div>
                   )}
                 </div>
                 <div className={`max-w-xs px-3 py-2 rounded-lg ${msg.user === userName ? 'bg-[#FB8B24] text-black' : 'bg-[#171717] border border-[#DDAA52]/30 text-[#FFFFFF]'}`}>
@@ -126,6 +160,14 @@ export default function GroupChatModal({ onClose }: GroupChatModalProps) {
         </div>
         
         <div className="p-4 border-t border-[#DDAA52]/30">
+          {showWarning && (
+            <div className="mb-3 p-3 bg-red-500/20 border border-red-500/50 rounded-lg">
+              <p className="text-red-400 text-sm font-medium">
+                ⚠️ Warning {warningCount}/3: Please be respectful and avoid abusive language.
+                {warningCount === 2 && ' One more violation will result in account suspension.'}
+              </p>
+            </div>
+          )}
           <div className="flex space-x-2">
             <input
               type="text"

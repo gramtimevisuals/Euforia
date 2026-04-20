@@ -22,8 +22,8 @@ interface CalendarDropdownProps {
 
 export default function CalendarDropdown({ event, ticketCode }: CalendarDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  
-  const calendar = addToCalendar(event, ticketCode);
+
+  const getCalendar = () => addToCalendar(event, ticketCode);
 
   return (
     <div className="relative">
@@ -43,7 +43,7 @@ export default function CalendarDropdown({ event, ticketCode }: CalendarDropdown
       {isOpen && (
         <div className="absolute top-full left-0 mt-2 w-48 bg-[#171717] border border-[#DDAA52]/30 rounded-xl shadow-lg z-10">
           <button
-            onClick={() => { calendar.google(); setIsOpen(false); }}
+            onClick={() => { getCalendar().google(); setIsOpen(false); }}
             className="w-full px-4 py-3 text-left text-[#FFFFFF] hover:bg-[#FB8B24]/10 transition-colors flex items-center space-x-3 rounded-t-xl"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
@@ -56,7 +56,7 @@ export default function CalendarDropdown({ event, ticketCode }: CalendarDropdown
           </button>
           
           <button
-            onClick={() => { calendar.apple(); setIsOpen(false); }}
+            onClick={() => { getCalendar().apple(); setIsOpen(false); }}
             className="w-full px-4 py-3 text-left text-[#FFFFFF] hover:bg-[#FB8B24]/10 transition-colors flex items-center space-x-3"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -66,7 +66,7 @@ export default function CalendarDropdown({ event, ticketCode }: CalendarDropdown
           </button>
           
           <button
-            onClick={() => { calendar.outlook(); setIsOpen(false); }}
+            onClick={() => { getCalendar().outlook(); setIsOpen(false); }}
             className="w-full px-4 py-3 text-left text-[#FFFFFF] hover:bg-[#FB8B24]/10 transition-colors flex items-center space-x-3 rounded-b-xl"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">

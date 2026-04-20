@@ -1,13 +1,18 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import PrivacyPolicy from "./PrivacyPolicy";
+import TermsAndConditions from "./TermsAndConditions";
 
 interface SettingsScreenProps {
   user: any;
   onUpgrade: () => void;
+  onLogout: () => void;
 }
 
-export default function SettingsScreen({ user, onUpgrade }: SettingsScreenProps) {
+export default function SettingsScreen({ user, onUpgrade, onLogout }: SettingsScreenProps) {
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
 
   const handleUpgrade = async () => {
     setIsUpgrading(true);
@@ -22,6 +27,8 @@ export default function SettingsScreen({ user, onUpgrade }: SettingsScreenProps)
 
   return (
     <div className="max-w-4xl mx-auto">
+      {showPrivacy && <PrivacyPolicy onClose={() => setShowPrivacy(false)} />}
+      {showTerms && <TermsAndConditions onClose={() => setShowTerms(false)} />}
       <div className="text-center mb-8">
         <h2 className="text-4xl font-bold text-white mb-4">Settings</h2>
         <p className="text-white/70 text-lg">Manage your account and subscription</p>
@@ -136,6 +143,102 @@ export default function SettingsScreen({ user, onUpgrade }: SettingsScreenProps)
               />
             </div>
           </div>
+        </div>
+
+        {/* Privacy */}
+        <div className="bg-[#171717] backdrop-blur-md rounded-3xl border border-[#DDAA52]/30 p-8">
+          <h3 className="text-2xl font-bold text-[#FFFFFF] mb-6">Privacy</h3>
+          <p className="text-[#FFFFFF]/70 mb-4">Manage what information you see and share on Euforia</p>
+          <button className="text-[#DDAA52] hover:text-[#FB8B24] transition-colors">
+            Manage Privacy Settings →
+          </button>
+        </div>
+
+        {/* Security */}
+        <div className="bg-[#171717] backdrop-blur-md rounded-3xl border border-[#DDAA52]/30 p-8">
+          <h3 className="text-2xl font-bold text-[#FFFFFF] mb-6">Security</h3>
+          <p className="text-[#FFFFFF]/70 mb-4">Manage your password.</p>
+          <button className="text-[#DDAA52] hover:text-[#FB8B24] transition-colors">
+            Change Password →
+          </button>
+        </div>
+
+        {/* Language */}
+        <div className="bg-[#171717] backdrop-blur-md rounded-3xl border border-[#DDAA52]/30 p-8">
+          <h3 className="text-2xl font-bold text-[#FFFFFF] mb-6">Language</h3>
+          <p className="text-[#FFFFFF]/70 mb-4">Change the language used in the app for a personalised experience.</p>
+          <select className="bg-[#000000] border border-[#DDAA52]/30 rounded-lg px-4 py-2 text-[#FFFFFF]">
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+            <option value="de">Deutsch</option>
+          </select>
+        </div>
+
+        {/* Privacy Policy */}
+        <div className="bg-[#171717] backdrop-blur-md rounded-3xl border border-[#DDAA52]/30 p-8">
+          <h3 className="text-2xl font-bold text-[#FFFFFF] mb-6">Privacy Policy</h3>
+          <p className="text-[#FFFFFF]/70 mb-4">Read our privacy policy to learn how we handle our data.</p>
+          <button
+            onClick={() => setShowPrivacy(true)}
+            className="text-[#DDAA52] hover:text-[#FB8B24] transition-colors"
+          >
+            Read Privacy Policy →
+          </button>
+        </div>
+
+        {/* Terms and Conditions */}
+        <div className="bg-[#171717] backdrop-blur-md rounded-3xl border border-[#DDAA52]/30 p-8">
+          <h3 className="text-2xl font-bold text-[#FFFFFF] mb-6">Terms and Conditions</h3>
+          <p className="text-[#FFFFFF]/70 mb-4">Review our terms and conditions</p>
+          <button
+            onClick={() => setShowTerms(true)}
+            className="text-[#DDAA52] hover:text-[#FB8B24] transition-colors"
+          >
+            Read Terms & Conditions →
+          </button>
+        </div>
+
+        {/* Account Deletion */}
+        <div className="bg-[#171717] backdrop-blur-md rounded-3xl border border-red-500/30 p-8">
+          <h3 className="text-2xl font-bold text-red-400 mb-6">Account Deletion</h3>
+          <p className="text-[#FFFFFF]/70 mb-4">Delete your account and all your data permanently.</p>
+          <button
+            onClick={async () => {
+              if (confirm('Are you sure you want to permanently delete your account? This cannot be undone.')) {
+                try {
+                  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                  const response = await fetch(`/api/users/account`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                  });
+                  if (response.ok) {
+                    toast.success('Account deleted successfully');
+                    onLogout();
+                  } else {
+                    toast.error('Failed to delete account');
+                  }
+                } catch {
+                  toast.error('Failed to delete account');
+                }
+              }
+            }}
+            className="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+          >
+            Delete Account
+          </button>
+        </div>
+
+        {/* Logout */}
+        <div className="bg-[#171717] backdrop-blur-md rounded-3xl border border-[#DDAA52]/30 p-8">
+          <h3 className="text-2xl font-bold text-[#FFFFFF] mb-6">Logout</h3>
+          <p className="text-[#FFFFFF]/70 mb-4">Sign out of your Euforia account.</p>
+          <button
+            onClick={onLogout}
+            className="bg-[#171717]/50 border border-[#DDAA52]/30 text-[#FFFFFF] px-6 py-3 rounded-lg font-semibold hover:bg-[#DDAA52]/20 transition-colors"
+          >
+            Logout
+          </button>
         </div>
       </div>
     </div>

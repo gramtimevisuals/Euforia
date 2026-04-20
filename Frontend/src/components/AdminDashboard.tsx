@@ -56,6 +56,8 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'events' | 'users' | 'discover'>('dashboard');
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
 
+  const getToken = () => localStorage.getItem('adminToken');
+
   useEffect(() => {
     fetchAnalytics();
     fetchEvents();
@@ -63,7 +65,7 @@ export default function AdminDashboard() {
   }, []);
 
   const fetchAnalytics = async () => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (!token) return;
 
     try {
@@ -83,7 +85,7 @@ export default function AdminDashboard() {
   };
 
   const fetchEvents = async () => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (!token) return;
 
     try {
@@ -101,7 +103,7 @@ export default function AdminDashboard() {
   };
 
   const fetchUsers = async () => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (!token) return;
 
     try {
@@ -119,7 +121,7 @@ export default function AdminDashboard() {
   };
 
   const handleEventAction = async (eventId: string, status: 'approved' | 'rejected') => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (!token) return;
 
     try {
@@ -151,7 +153,7 @@ export default function AdminDashboard() {
   };
 
   const handleUserAction = async (userId: string, action: 'suspend' | 'delete') => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (!token) return;
 
     if (!confirm(`Are you sure you want to ${action} this user?`)) return;
@@ -197,7 +199,7 @@ export default function AdminDashboard() {
             className={`px-4 py-2 rounded-xl font-medium transition-all flex items-center ${
               activeTab === 'dashboard'
                 ? 'bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black'
-                : 'text-white/60 hover:text-white hover:bg-white/10'
+                : 'text-white/60 hover:text-white hover:bg-[#DDAA52]/10'
             }`}
           >
             <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -210,7 +212,7 @@ export default function AdminDashboard() {
             className={`px-4 py-2 rounded-xl font-medium transition-all flex items-center ${
               activeTab === 'events'
                 ? 'bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black'
-                : 'text-white/60 hover:text-white hover:bg-white/10'
+                : 'text-white/60 hover:text-white hover:bg-[#DDAA52]/10'
             }`}
           >
             <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -223,7 +225,7 @@ export default function AdminDashboard() {
             className={`px-4 py-2 rounded-xl font-medium transition-all flex items-center ${
               activeTab === 'users'
                 ? 'bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black'
-                : 'text-white/60 hover:text-white hover:bg-white/10'
+                : 'text-white/60 hover:text-white hover:bg-[#DDAA52]/10'
             }`}
           >
             <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -236,7 +238,7 @@ export default function AdminDashboard() {
             className={`px-4 py-2 rounded-xl font-medium transition-all flex items-center ${
               activeTab === 'discover'
                 ? 'bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black'
-                : 'text-white/60 hover:text-white hover:bg-white/10'
+                : 'text-white/60 hover:text-white hover:bg-[#DDAA52]/10'
             }`}
           >
             <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -246,7 +248,7 @@ export default function AdminDashboard() {
           </button>
           <button
             onClick={() => {
-              localStorage.removeItem('token');
+              localStorage.removeItem('adminToken');
               window.location.reload();
             }}
             className="px-4 py-2 bg-red-500/20 text-red-400 rounded-xl font-medium hover:bg-red-500/30 transition-all flex items-center"
@@ -315,7 +317,7 @@ export default function AdminDashboard() {
 
           {/* Charts and Analytics */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6">
+            <div className="bg-[#171717] rounded-2xl border border-[#DDAA52]/30 p-6">
               <h3 className="text-xl font-bold text-white mb-4">Top Categories</h3>
               <div className="space-y-3">
                 {analytics.topCategories.map((cat) => (
@@ -335,7 +337,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6">
+            <div className="bg-[#171717] rounded-2xl border border-[#DDAA52]/30 p-6">
               <h3 className="text-xl font-bold text-white mb-4">Recent Activity</h3>
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {analytics.recentActivity.map((activity, index) => (
@@ -353,7 +355,7 @@ export default function AdminDashboard() {
 
           {/* Additional Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 px-4">
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6 text-center">
+            <div className="bg-[#171717] rounded-2xl border border-[#DDAA52]/30 p-6 text-center">
               <svg className="w-12 h-12 text-[#DDAA52] mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
               </svg>
@@ -362,7 +364,7 @@ export default function AdminDashboard() {
               <p className="text-white/60 text-xs">{analytics.totalRatings} total ratings</p>
             </div>
             
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6 text-center">
+            <div className="bg-[#171717] rounded-2xl border border-[#DDAA52]/30 p-6 text-center">
               <svg className="w-12 h-12 text-[#FB8B24] mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
                 <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
@@ -371,7 +373,7 @@ export default function AdminDashboard() {
               <p className="text-white/60 text-sm">Total Views</p>
             </div>
             
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6 text-center">
+            <div className="bg-[#171717] rounded-2xl border border-[#DDAA52]/30 p-6 text-center">
               <svg className="w-12 h-12 text-[#A31818] mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
               </svg>
@@ -385,7 +387,7 @@ export default function AdminDashboard() {
       {activeTab === 'events' && (
         <div className="space-y-4">
           {events.map((event) => (
-            <div key={event.id} className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6">
+            <div key={event.id} className="bg-[#171717] rounded-2xl border border-[#DDAA52]/30 p-6">
               <div className="flex justify-between items-start">
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-1">{event.title}</h3>
@@ -448,7 +450,7 @@ export default function AdminDashboard() {
       {activeTab === 'users' && (
         <div className="space-y-4">
           {users.map((user) => (
-            <div key={user.id} className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6">
+            <div key={user.id} className="bg-[#171717] rounded-2xl border border-[#DDAA52]/30 p-6">
               <div className="flex justify-between items-start">
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-1">
@@ -503,7 +505,7 @@ export default function AdminDashboard() {
       )}
 
       {activeTab === 'discover' && (
-        <div className="bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 p-6">
+        <div className="bg-[#171717] rounded-2xl border border-[#DDAA52]/30 p-6">
           <EventDiscovery 
             userLocation={null}
             currency={{ code: 'USD', symbol: '$' }}
@@ -603,17 +605,21 @@ export default function AdminDashboard() {
                         <p className="text-white/80">{selectedEvent.location_address}</p>
                       </div>
                     )}
-                    {selectedEvent.location && (
+                    {selectedEvent.location && selectedEvent.location.latitude !== 0 && (
                       <div>
                         <span className="text-[#DDAA52] text-sm font-medium">Coordinates:</span>
                         <p className="text-white/60 text-sm font-mono">
                           {selectedEvent.location.latitude.toFixed(6)}, {selectedEvent.location.longitude.toFixed(6)}
                         </p>
-                        <img
-                          src={`https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=400&height=200&center=lonlat:${selectedEvent.location.longitude},${selectedEvent.location.latitude}&zoom=15&marker=lonlat:${selectedEvent.location.longitude},${selectedEvent.location.latitude};color:%23FB8B24;size:medium&apiKey=demo`}
-                          alt="Event Location Map"
-                          className="w-full mt-2 rounded-lg border border-[#DDAA52]/20"
-                        />
+                        <div className="mt-2 rounded-lg overflow-hidden border border-[#DDAA52]/20" style={{height:'180px'}}>
+                          <iframe
+                            title="Event Map"
+                            width="100%"
+                            height="180"
+                            style={{border:0}}
+                            src={`https://www.openstreetmap.org/export/embed.html?bbox=${selectedEvent.location.longitude-0.01},${selectedEvent.location.latitude-0.01},${selectedEvent.location.longitude+0.01},${selectedEvent.location.latitude+0.01}&layer=mapnik&marker=${selectedEvent.location.latitude},${selectedEvent.location.longitude}`}
+                          />
+                        </div>
                       </div>
                     )}
                   </div>

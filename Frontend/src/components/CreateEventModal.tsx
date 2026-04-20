@@ -28,49 +28,42 @@ export default function CreateEventModal({ onClose, onEventCreated }: CreateEven
   const categories = ["Music", "Sports", "Food", "Art", "Business", "Technology", "Health", "Education", "Other"];
 
   const searchNearbyLocations = async (query: string = '') => {
-    if (!userLocation) {
-      await getUserLocation();
-      return;
-    }
+    if (query.length < 2) return;
 
     try {
-      const { latitude, longitude } = userLocation;
-      const radius = 5000; // 5km radius
-      
-      let url = `https://nominatim.openstreetmap.org/search?format=json&limit=10&addressdetails=1&bounded=1&viewbox=${longitude-0.05},${latitude+0.05},${longitude+0.05},${latitude-0.05}`;
-      
-      if (query.length >= 2) {
-        url += `&q=${encodeURIComponent(query)}`;
-      } else {
-        // Search for common venue types nearby
-        url += `&q=restaurant+cafe+hotel+mall+park+theater+stadium+center`;
-      }
+      // First search globally for exact user input
+      let url = `https://nominatim.openstreetmap.org/search?format=json&limit=10&addressdetails=1&q=${encodeURIComponent(query)}`;
       
       const response = await fetch(url);
       const data = await response.json();
       
-      const suggestions = data
-        .map((item: any) => {
-          const lat = parseFloat(item.lat);
-          const lon = parseFloat(item.lon);
-          const distance = calculateDistance(latitude, longitude, lat, lon);
-          
-          return {
-            name: item.display_name.split(',')[0] || item.display_name,
-            address: item.display_name,
-            latitude: lat,
-            longitude: lon,
-            distance: distance
-          };
+      let suggestions = data.map((item: any) => {
+        const lat = parseFloat(item.lat);
+        const lon = parseFloat(item.lon);
+        
+        return {
+          name: query, // Use exact user input as location name
+          address: item.display_name,
+          latitude: lat,
+          longitude: lon,
+          distance: userLocation ? calculateDistance(userLocation.latitude, userLocation.longitude, lat, lon) : 0
+        };
+      });
+      
+      // Sort by relevance to user input first, then by distance
+      suggestions = suggestions
+        .sort((a: any, b: any) => {
+          const aRelevance = a.name.toLowerCase().includes(query.toLowerCase()) ? 0 : 1;
+          const bRelevance = b.name.toLowerCase().includes(query.toLowerCase()) ? 0 : 1;
+          if (aRelevance !== bRelevance) return aRelevance - bRelevance;
+          return a.distance - b.distance;
         })
-        .filter((item: any) => item.distance <= 5) // Within 5km
-        .sort((a: any, b: any) => a.distance - b.distance)
         .slice(0, 8);
       
       setLocationSuggestions(suggestions);
       setShowSuggestions(true);
     } catch (error) {
-      console.error('Failed to search nearby locations:', error);
+      console.error('Failed to search locations:', error);
     }
   };
 
@@ -126,33 +119,38 @@ export default function CreateEventModal({ onClose, onEventCreated }: CreateEven
 
       const { latitude, longitude } = position.coords;
       
-      // Reverse geocoding to get address
-      const response = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${latitude}+${longitude}&key=YOUR_API_KEY`);
+      // Use OpenStreetMap Nominatim for reverse geocoding
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1`);
       const data = await response.json();
       
-      if (data.results && data.results[0]) {
-        const result = data.results[0];
+      if (data && data.display_name) {
+        const addressParts = data.display_name.split(',');
+        const venueName = addressParts[0] || 'Current Location';
+        const fullAddress = data.display_name;
+        
         const locationInfo = {
-          name: result.formatted || 'Current Location',
-          address: result.formatted || `${latitude}, ${longitude}`,
+          name: venueName.trim(),
+          address: fullAddress,
           latitude,
           longitude
         };
         
         setLocationData(locationInfo);
-        setFormData({...formData, location: locationInfo.name});
+        setFormData({...formData, location: venueName.trim()});
+        setUserLocation({ latitude, longitude });
         toast.success('Location captured successfully!');
       } else {
         // Fallback to coordinates
         const locationInfo = {
-          name: `Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
-          address: `${latitude}, ${longitude}`,
+          name: `GPS Location`,
+          address: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
           latitude,
           longitude
         };
         
         setLocationData(locationInfo);
-        setFormData({...formData, location: locationInfo.name});
+        setFormData({...formData, location: 'GPS Location'});
+        setUserLocation({ latitude, longitude });
         toast.success('GPS coordinates captured!');
       }
     } catch (error) {
@@ -289,7 +287,8 @@ export default function CreateEventModal({ onClose, onEventCreated }: CreateEven
                             </svg>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-[#FFFFFF] truncate">{suggestion.name}</p>
-                              <p className="text-xs text-[#FFFFFF]/60">{suggestion.distance?.toFixed(1)}km away • {suggestion.address.split(',').slice(1, 3).join(',')}</p>
+                              <p className="text-xs text-[#FFFFFF]/60">{suggestion.distance?.toFixed(1)}km away</p>
+                              <p className="text-xs text-[#FFFFFF]/40 truncate">{suggestion.address}</p>
                             </div>
                           </div>
                         </button>

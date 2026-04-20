@@ -18,37 +18,54 @@ interface EventLocationMapProps {
 export default function EventLocationMap({ event, onMapReady }: EventLocationMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapImageUrl, setMapImageUrl] = useState<string>('');
+  const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
 
   useEffect(() => {
-    const lat = event.location?.latitude || 0;
-    const lng = event.location?.longitude || 0;
+    // Get user location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        () => {
+          setUserLocation(null);
+        }
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    const eventLat = event.location?.latitude || 0;
+    const eventLng = event.location?.longitude || 0;
     
-    if (lat === 0 && lng === 0) {
+    if (eventLat === 0 && eventLng === 0) {
       setMapImageUrl('');
       return;
     }
 
-    // Use OpenStreetMap static map service
-    const zoom = 15;
-    const width = 400;
-    const height = 300;
-    
-    // Create static map URL using a reliable service
-    const staticMapUrl = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=${width}&height=${height}&center=lonlat:${lng},${lat}&zoom=${zoom}&marker=lonlat:${lng},${lat};color:%23FB8B24;size:medium&apiKey=demo`;
-    
-    setMapImageUrl(staticMapUrl);
+    // Only set map as ready when component mounts
+    setMapImageUrl('custom-map');
     
     if (onMapReady) {
-      onMapReady(staticMapUrl);
+      onMapReady('custom-map');
     }
-  }, [event, onMapReady]);
+  }, [event, onMapReady, userLocation]);
 
   const downloadMap = () => {
     if (mapImageUrl) {
-      const link = document.createElement('a');
-      link.href = mapImageUrl;
-      link.download = `${event.title}-location-map.png`;
-      link.click();
+      // Open map in new window for screenshot
+      const lat = event.location?.latitude || 0;
+      const lng = event.location?.longitude || 0;
+      let url;
+      if (userLocation) {
+        url = `https://www.google.com/maps/dir/${userLocation.lat},${userLocation.lng}/${lat},${lng}`;
+      } else {
+        url = `https://www.google.com/maps?q=${lat},${lng}`;
+      }
+      window.open(url, '_blank');
     }
   };
 
@@ -70,40 +87,82 @@ export default function EventLocationMap({ event, onMapReady }: EventLocationMap
         </h4>
         <div className="flex space-x-2">
           <button
-            onClick={downloadMap}
-            className="text-[#DDAA52] hover:text-[#FB8B24] transition-colors"
-            title="Download Map"
+            onClick={() => {
+              const lat = event.location?.latitude || 0;
+              const lng = event.location?.longitude || 0;
+              let url;
+              if (userLocation) {
+                // Google Maps directions URL with proper routing
+                url = `https://www.google.com/maps/dir/${userLocation.lat},${userLocation.lng}/${lat},${lng}/data=!3m1!4b1!4m2!4m1!3e0`;
+              } else {
+                // Just show the event location
+                url = `https://www.google.com/maps/place/${lat},${lng}/@${lat},${lng},15z`;
+              }
+              window.open(url, '_blank');
+            }}
+            className="bg-[#FB8B24] text-black px-3 py-1 rounded text-xs font-medium hover:bg-[#DDAA52] transition-colors flex items-center"
+            title={userLocation ? "Get Directions" : "View Location"}
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+            <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
             </svg>
-          </button>
-          <button
-            onClick={openInMaps}
-            className="text-[#DDAA52] hover:text-[#FB8B24] transition-colors"
-            title="Open in Maps"
-          >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
-            </svg>
+            {userLocation ? 'Directions' : 'View on Map'}
           </button>
         </div>
       </div>
       
       {mapImageUrl ? (
-        <img 
-          src={mapImageUrl}
-          alt="Event Location Map"
-          className="w-full h-auto rounded-lg border border-[#DDAA52]/20"
-          onError={(e) => {
-            // Fallback to Google Maps static if primary fails
-            const lat = event.location?.latitude || 0;
-            const lng = event.location?.longitude || 0;
-            if (lat && lng) {
-              e.currentTarget.src = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=400x300&markers=color:orange%7C${lat},${lng}&key=AIzaSyBFw0Qbyq9zTFTd-tUY6dO_X0Q_MplT9So`;
-            }
-          }}
-        />
+        <div className="w-full h-64 rounded-lg border border-[#DDAA52]/20 bg-gradient-to-br from-[#171717] to-[#171717]/80 flex flex-col items-center justify-center relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#FB8B24]/10 to-[#DDAA52]/10"></div>
+          <div className="relative z-10 text-center">
+            <svg className="w-16 h-16 mx-auto mb-4 text-[#FB8B24]" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+            </svg>
+            <div className="text-[#FFFFFF] font-semibold mb-2">Event Location</div>
+            <div className="text-[#DDAA52] text-sm mb-2">{event.location?.name || event.location_name}</div>
+            <div className="text-[#FFFFFF]/70 text-xs mb-4">{event.location?.address || event.location_address}</div>
+            {userLocation && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-center space-x-4 text-xs">
+                  <div className="flex items-center">
+                    <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                    <span className="text-[#FFFFFF]/70">Your Location</span>
+                  </div>
+                  <div className="w-8 h-0.5 bg-blue-500"></div>
+                  <div className="flex items-center">
+                    <div className="w-3 h-3 bg-[#FB8B24] rounded-full mr-2"></div>
+                    <span className="text-[#FFFFFF]/70">Event</span>
+                  </div>
+                </div>
+                <div className="bg-[#171717]/50 rounded-lg p-3 border border-[#DDAA52]/20">
+                  <div className="text-xs text-[#FFFFFF]/70 mb-2">Route Preview:</div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col items-center">
+                      <div className="w-4 h-4 bg-green-500 rounded-full mb-1"></div>
+                      <div className="text-xs text-[#FFFFFF]/60">Start</div>
+                    </div>
+                    <div className="flex-1 mx-2 relative">
+                      <div className="h-0.5 bg-blue-500 w-full"></div>
+                      <div className="absolute top-0 left-1/4 w-1 h-1 bg-blue-400 rounded-full transform -translate-y-0.5"></div>
+                      <div className="absolute top-0 left-2/4 w-1 h-1 bg-blue-400 rounded-full transform -translate-y-0.5"></div>
+                      <div className="absolute top-0 left-3/4 w-1 h-1 bg-blue-400 rounded-full transform -translate-y-0.5"></div>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-4 h-4 bg-[#FB8B24] rounded-full mb-1"></div>
+                      <div className="text-xs text-[#FFFFFF]/60">Event</div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs text-[#FFFFFF]/50">
+                    Distance: ~{((Math.abs(userLocation.lat - (event.location?.latitude || 0)) + Math.abs(userLocation.lng - (event.location?.longitude || 0))) * 111).toFixed(1)} km
+                  </div>
+                  <div className="mt-2 text-xs text-[#FB8B24] font-medium">
+                    📍 {event.location?.name || event.location_name}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       ) : (
         <div className="w-full h-48 bg-[#171717]/50 rounded-lg border border-[#DDAA52]/20 flex items-center justify-center">
           <div className="text-center text-[#FFFFFF]/60">
@@ -124,7 +183,10 @@ export default function EventLocationMap({ event, onMapReady }: EventLocationMap
         </div>
         {event.location?.latitude && event.location?.longitude && (
           <div className="text-xs text-[#FFFFFF]/50 mt-1">
-            {event.location.latitude.toFixed(4)}, {event.location.longitude.toFixed(4)}
+            Event: {event.location.latitude.toFixed(4)}, {event.location.longitude.toFixed(4)}
+            {userLocation && (
+              <div>Your location: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}</div>
+            )}
           </div>
         )}
       </div>

@@ -112,7 +112,7 @@ class CurrencyService {
 
   formatPrice(amount: number): string {
     const currency = this.getCurrentCurrency();
-    return `${currency.symbol}${amount.toFixed(2)}`;
+    return `${currency.symbol}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
   getCurrencySymbol(): string {

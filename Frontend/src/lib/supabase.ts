@@ -1,11 +1,8 @@
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder'
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+// Supabase has been removed. This stub prevents import errors.
+export const supabase = {
   auth: {
-    persistSession: true,
-    autoRefreshToken: true
+    getSession: async () => ({ data: { session: null, user: null }, error: null }),
+    signOut: async () => ({ error: null }),
+    signInWithOAuth: async () => ({ data: null, error: null }),
   }
-})
+};

@@ -1,5 +1,3 @@
-const { createClient } = require('@supabase/supabase-js');
-
 class Message {
   constructor(supabase) {
     this.supabase = supabase;

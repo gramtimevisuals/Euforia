@@ -6,10 +6,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    minify: 'esbuild'
+    minify: 'terser'
   },
   server: {
     port: 5173,
-    host: true
+    host: true,
+    proxy: {}
   }
 })

@@ -12,55 +12,45 @@ interface Event {
   price?: number;
 }
 
-export const addToCalendar = (event: Event, ticketCode?: string) => {
-  const startDate = new Date(`${event.date}T${event.time}`);
-  const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000); // 2 hours duration
-  
-  const formatDate = (date: Date) => {
-    return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  };
+const formatDate = (date: Date) => {
+  const d = isNaN(date.getTime()) ? new Date() : date;
+  return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+};
 
-  const eventDetails = {
-    title: event.title,
-    description: `${event.description}${ticketCode ? `\n\nTicket Code: ${ticketCode}` : ''}${event.hasTickets ? `\nPrice: $${event.price}` : ''}`,
+const buildEventDetails = (event: Event, ticketCode?: string) => {
+  const rawDate = event.date && event.time ? new Date(`${event.date}T${event.time}`) : new Date();
+  const startDate = isNaN(rawDate.getTime()) ? new Date() : rawDate;
+  const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
+  return {
+    title: event.title || 'Event',
+    description: `${event.description || ''}${ticketCode ? `\n\nTicket Code: ${ticketCode}` : ''}${event.hasTickets ? `\nPrice: $${event.price}` : ''}`,
     location: `${event.location?.name || 'TBD'}, ${event.location?.address || ''}`,
     startTime: formatDate(startDate),
-    endTime: formatDate(endDate)
+    endTime: formatDate(endDate),
+    id: event._id || 'event',
   };
+};
 
+export const addToCalendar = (event: Event, ticketCode?: string) => {
   return {
     google: () => {
-      const googleUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(eventDetails.title)}&dates=${eventDetails.startTime}/${eventDetails.endTime}&details=${encodeURIComponent(eventDetails.description)}&location=${encodeURIComponent(eventDetails.location)}`;
-      window.open(googleUrl, '_blank');
+      const d = buildEventDetails(event, ticketCode);
+      window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(d.title)}&dates=${d.startTime}/${d.endTime}&details=${encodeURIComponent(d.description)}&location=${encodeURIComponent(d.location)}`, '_blank');
     },
-    
     apple: () => {
-      const icsContent = `BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Euforia//Event//EN
-BEGIN:VEVENT
-UID:${event._id}@euforia.com
-DTSTAMP:${formatDate(new Date())}
-DTSTART:${eventDetails.startTime}
-DTEND:${eventDetails.endTime}
-SUMMARY:${eventDetails.title}
-DESCRIPTION:${eventDetails.description.replace(/\n/g, '\\n')}
-LOCATION:${eventDetails.location}
-END:VEVENT
-END:VCALENDAR`;
-      
+      const d = buildEventDetails(event, ticketCode);
+      const icsContent = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Euforia//Event//EN\nBEGIN:VEVENT\nUID:${d.id}@euforia.com\nDTSTAMP:${formatDate(new Date())}\nDTSTART:${d.startTime}\nDTEND:${d.endTime}\nSUMMARY:${d.title}\nDESCRIPTION:${d.description.replace(/\n/g, '\\n')}\nLOCATION:${d.location}\nEND:VEVENT\nEND:VCALENDAR`;
       const blob = new Blob([icsContent], { type: 'text/calendar' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${event.title}.ics`;
+      link.download = `${d.title}.ics`;
       link.click();
       URL.revokeObjectURL(url);
     },
-    
     outlook: () => {
-      const outlookUrl = `https://outlook.live.com/calendar/0/deeplink/compose?subject=${encodeURIComponent(eventDetails.title)}&startdt=${eventDetails.startTime}&enddt=${eventDetails.endTime}&body=${encodeURIComponent(eventDetails.description)}&location=${encodeURIComponent(eventDetails.location)}`;
-      window.open(outlookUrl, '_blank');
-    }
+      const d = buildEventDetails(event, ticketCode);
+      window.open(`https://outlook.live.com/calendar/0/deeplink/compose?subject=${encodeURIComponent(d.title)}&startdt=${d.startTime}&enddt=${d.endTime}&body=${encodeURIComponent(d.description)}&location=${encodeURIComponent(d.location)}`, '_blank');
+    },
   };
 };

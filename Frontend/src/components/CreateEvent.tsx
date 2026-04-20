@@ -11,7 +11,10 @@ export default function CreateEvent() {
     time: '',
     location: { name: '', address: '', latitude: 0, longitude: 0 },
     hasTickets: false,
-    price: 0,
+    ticketTypes: {
+      ussdCode: '',
+      webLink: ''
+    },
     tags: [] as string[],
     flyerFile: null as File | null
   });
@@ -24,7 +27,7 @@ export default function CreateEvent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) {
       toast.error('Please log in to create events');
       return;
@@ -40,7 +43,7 @@ export default function CreateEvent() {
       submitData.append('time', formData.time);
       submitData.append('location', JSON.stringify(formData.location));
       submitData.append('hasTickets', formData.hasTickets.toString());
-      submitData.append('price', formData.price.toString());
+      submitData.append('ticketTypes', JSON.stringify(formData.ticketTypes));
       submitData.append('tags', JSON.stringify(formData.tags));
       if (formData.flyerFile) {
         submitData.append('flyer', formData.flyerFile);
@@ -54,10 +57,13 @@ export default function CreateEvent() {
 
       if (response.ok) {
         toast.success('Event submitted for admin approval!');
+        window.dispatchEvent(new Event('navigateToEvents'));
         setFormData({
           title: '', description: '', category: '', date: '', time: '',
           location: { name: '', address: '', latitude: 0, longitude: 0 },
-          hasTickets: false, price: 0, tags: [], flyerFile: null
+          hasTickets: false,
+          ticketTypes: { ussdCode: '', webLink: '' },
+          tags: [], flyerFile: null
         });
       } else {
         const data = await response.json();
@@ -109,65 +115,27 @@ export default function CreateEvent() {
       toast.error('Please enter an address first');
       return;
     }
-    
     setLocationLoading(true);
     try {
-      // Try multiple geocoding services for accuracy
-      let lat, lng, foundLocation = false;
-      
-      // First try: Nominatim with detailed search
-      const nominatimResponse = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formData.location.address)}&addressdetails=1&limit=5`
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formData.location.address)}&limit=1`
       );
-      const nominatimData = await nominatimResponse.json();
-      
-      if (nominatimData && nominatimData.length > 0) {
-        // Find the most specific match
-        const bestMatch = nominatimData.find(result => 
-          result.display_name.toLowerCase().includes(formData.location.address.toLowerCase())
-        ) || nominatimData[0];
-        
-        lat = parseFloat(bestMatch.lat);
-        lng = parseFloat(bestMatch.lon);
-        foundLocation = true;
-        
-        // Auto-fill venue name if not already filled
-        const venueName = bestMatch.name || bestMatch.display_name.split(',')[0];
-        if (!formData.location.name || formData.location.name.trim() === '') {
-          setFormData(prev => ({
-            ...prev,
-            location: { 
-              ...prev.location, 
-              name: venueName,
-              latitude: lat, 
-              longitude: lng 
-            }
-          }));
-          toast.success(`Found venue: ${venueName}`);
-        } else {
-          setFormData(prev => ({
-            ...prev,
-            location: { ...prev.location, latitude: lat, longitude: lng }
-          }));
-          toast.success(`Location found for ${formData.location.name}`);
-        }
-        
-        console.log('Geocoding result:', bestMatch);
-      }
-      
-      if (!foundLocation) {
-        toast.error('Exact address not found. Please verify the address is correct.');
+      const data = await response.json();
+      if (!data || data.length === 0) {
+        toast.error('Address not found. Try a more specific address.');
         return;
       }
-      
+      const { lat, lon, display_name } = data[0];
+      const latitude = parseFloat(lat);
+      const longitude = parseFloat(lon);
+      const venueName = formData.location.name || display_name.split(',')[0];
       setFormData(prev => ({
         ...prev,
-        location: { ...prev.location, latitude: lat, longitude: lng }
+        location: { name: venueName, address: formData.location.address, latitude, longitude }
       }));
       setShowMap(true);
-      
+      toast.success('Location found!');
     } catch (error) {
-      console.error('Geocoding error:', error);
       toast.error('Failed to locate address. Please try again.');
     } finally {
       setLocationLoading(false);
@@ -175,8 +143,8 @@ export default function CreateEvent() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-4 sm:p-6">
-      <div className="bg-[#171717]/80 backdrop-blur-md rounded-3xl border border-[#DDAA52]/30 p-4 sm:p-8">
+    <div className="max-w-2xl mx-auto p-2 sm:p-4 md:p-6">
+      <div className="bg-[#171717]/80 backdrop-blur-md rounded-3xl border border-[#DDAA52]/30 p-3 sm:p-6 md:p-8">
         <h2 className="text-3xl font-bold text-[#FFFFFF] mb-6">Create Event</h2>
         
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -258,38 +226,25 @@ export default function CreateEvent() {
           <div>
             <label className="block text-[#FFFFFF] font-medium mb-2">Location</label>
             <div className="space-y-3">
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  required
-                  placeholder="Venue name"
-                  value={formData.location.name}
-                  onChange={(e) => setFormData(prev => ({ 
-                    ...prev, 
-                    location: { ...prev.location, name: e.target.value }
-                  }))}
-                  className="flex-1 px-4 py-3 bg-[#171717] border border-[#DDAA52]/30 rounded-xl text-[#FFFFFF] placeholder-white/50 focus:ring-2 focus:ring-[#FB8B24]"
-                />
-                <button
-                  type="button"
-                  onClick={geocodeAddress}
-                  disabled={locationLoading}
-                  className="px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center"
-                >
-                  <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-                  </svg>
-                  Find
-                </button>
-              </div>
+              <input
+                type="text"
+                required
+                placeholder="Venue name"
+                value={formData.location.name}
+                onChange={(e) => setFormData(prev => ({
+                  ...prev,
+                  location: { ...prev.location, name: e.target.value }
+                }))}
+                className="w-full px-4 py-3 bg-[#171717] border border-[#DDAA52]/30 rounded-xl text-[#FFFFFF] placeholder-white/50 focus:ring-2 focus:ring-[#FB8B24]"
+              />
               <div className="flex space-x-2">
                 <input
                   type="text"
                   required
                   placeholder="Full address"
                   value={formData.location.address}
-                  onChange={(e) => setFormData(prev => ({ 
-                    ...prev, 
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
                     location: { ...prev.location, address: e.target.value }
                   }))}
                   className="flex-1 px-4 py-3 bg-[#171717] border border-[#DDAA52]/30 rounded-xl text-[#FFFFFF] placeholder-white/50 focus:ring-2 focus:ring-[#FB8B24]"
@@ -303,10 +258,10 @@ export default function CreateEvent() {
                   <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
                   </svg>
-                  Find
+                  {locationLoading ? 'Finding...' : 'Find'}
                 </button>
               </div>
-              
+
               <div className="flex space-x-2">
                 <button
                   type="button"
@@ -319,102 +274,40 @@ export default function CreateEvent() {
                   </svg>
                   {locationLoading ? 'Getting Location...' : 'Use Current Location'}
                 </button>
-                
+
                 {(formData.location.latitude !== 0 || formData.location.longitude !== 0) && (
                   <button
                     type="button"
                     onClick={() => setShowMap(!showMap)}
-                    className="px-4 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors flex items-center"
+                    className="px-4 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors"
                   >
-                    <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-                    </svg>
                     {showMap ? 'Hide Map' : 'Show Map'}
                   </button>
                 )}
               </div>
-              
+
               {(formData.location.latitude !== 0 || formData.location.longitude !== 0) && (
-                <div className="text-xs text-[#FFFFFF]/70">
-                  Coordinates: {formData.location.latitude.toFixed(6)}, {formData.location.longitude.toFixed(6)}
-                </div>
+                <p className="text-xs text-[#FFFFFF]/50">
+                  📍 {formData.location.latitude.toFixed(5)}, {formData.location.longitude.toFixed(5)}
+                </p>
               )}
-              
-              {showMap && (formData.location.latitude !== 0 || formData.location.longitude !== 0) && (
-                <div className="mt-4 p-4 bg-[#171717]/50 rounded-xl border border-[#DDAA52]/20">
-                  <h4 className="text-[#DDAA52] font-medium mb-3 flex items-center">
-                    <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-                    </svg>
-                    Event Location Verification
-                  </h4>
-                  
-                  {/* Location Accuracy Warning */}
-                  <div className="mb-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                    <div className="flex items-center text-yellow-400 text-sm font-medium mb-1">
-                      <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
-                      Verify Location Accuracy
-                    </div>
-                    <p className="text-yellow-300 text-xs">
-                      Please confirm this map shows the correct event location. If not accurate, try a more specific address or use "Current Location" if you're at the venue.
-                    </p>
-                  </div>
-                  
-                  <img
-                    src={`https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=400&height=200&center=lonlat:${formData.location.longitude},${formData.location.latitude}&zoom=15&marker=lonlat:${formData.location.longitude},${formData.location.latitude};color:%23FB8B24;size:medium&apiKey=demo`}
-                    alt="Event Location Map"
-                    className="w-full h-auto rounded-lg border border-[#DDAA52]/20"
-                    onError={(e) => {
-                      e.currentTarget.src = `https://maps.googleapis.com/maps/api/staticmap?center=${formData.location.latitude},${formData.location.longitude}&zoom=15&size=400x200&markers=color:orange%7C${formData.location.latitude},${formData.location.longitude}&key=AIzaSyBFw0Qbyq9zTFTd-tUY6dO_X0Q_MplT9So`;
-                    }}
+
+              {showMap && formData.location.latitude !== 0 && (
+                <div className="rounded-xl overflow-hidden border border-[#DDAA52]/20" style={{ height: '220px' }}>
+                  <iframe
+                    title="Event Location"
+                    width="100%"
+                    height="220"
+                    style={{ border: 0 }}
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${formData.location.longitude - 0.01},${formData.location.latitude - 0.01},${formData.location.longitude + 0.01},${formData.location.latitude + 0.01}&layer=mapnik&marker=${formData.location.latitude},${formData.location.longitude}`}
                   />
-                  
-                  <div className="mt-3 space-y-2">
-                    <div className="text-sm text-[#FFFFFF]/80">
-                      <div className="font-medium text-[#DDAA52]">{formData.location.name || 'Event Location'}</div>
-                      <div className="text-[#FFFFFF]/60">{formData.location.address}</div>
-                    </div>
-                    
-                    {/* Location Details */}
-                    <div className="grid grid-cols-2 gap-3 mt-3">
-                      <div className="bg-[#171717]/30 p-2 rounded-lg">
-                        <div className="text-xs text-[#FFFFFF]/50">Coordinates</div>
-                        <div className="text-xs text-[#DDAA52] font-mono">
-                          {formData.location.latitude.toFixed(6)}, {formData.location.longitude.toFixed(6)}
-                        </div>
-                      </div>
-                      <div className="bg-[#171717]/30 p-2 rounded-lg">
-                        <div className="text-xs text-[#FFFFFF]/50">Navigation</div>
-                        <button
-                          type="button"
-                          onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${formData.location.latitude},${formData.location.longitude}`, '_blank')}
-                          className="text-xs text-blue-400 hover:text-blue-300 underline"
-                        >
-                          Get Directions
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {/* Safety Features */}
-                    <div className="mt-3 p-2 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                      <div className="text-xs text-blue-400 font-medium mb-1">Safety Features Enabled:</div>
-                      <div className="text-xs text-blue-300 space-y-1">
-                        <div>✓ GPS coordinates verified and stored</div>
-                        <div>✓ Location accessible via navigation apps</div>
-                        <div>✓ Attendees can share location with emergency contacts</div>
-                        <div>✓ Event location visible to all participants</div>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-4">
-            <label className="flex items-center space-x-2">
+          <div>
+            <label className="flex items-center space-x-2 mb-4">
               <input
                 type="checkbox"
                 checked={formData.hasTickets}
@@ -425,16 +318,69 @@ export default function CreateEvent() {
             </label>
 
             {formData.hasTickets && (
-              <div>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="Price"
-                  value={formData.price}
-                  onChange={(e) => setFormData(prev => ({ ...prev, price: Number(e.target.value) }))}
-                  className="px-4 py-2 bg-[#171717] border border-[#DDAA52]/30 rounded-xl text-[#FFFFFF] placeholder-white/50 focus:ring-2 focus:ring-[#FB8B24]"
-                />
+              <div className="space-y-4">
+                <h3 className="text-[#FFFFFF] font-medium mb-3">Ticket Purchase Options</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-[#171717] border border-[#DDAA52]/30 rounded-xl p-4">
+                    <div className="flex items-center mb-3">
+                      <svg className="w-5 h-5 text-[#FB8B24] mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
+                      </svg>
+                      <span className="text-[#FFFFFF] font-medium">USSD Code</span>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="*123*456# (Clickable USSD)"
+                      value={formData.ticketTypes.ussdCode || ''}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        ticketTypes: {
+                          ...prev.ticketTypes,
+                          ussdCode: e.target.value
+                        }
+                      }))}
+                      className="w-full px-3 py-2 bg-[#000000] border border-[#DDAA52]/30 rounded-lg text-[#FFFFFF] placeholder-white/50 focus:ring-2 focus:ring-[#FB8B24]"
+                    />
+                    <p className="text-[#DDAA52] text-xs mt-2">Clients can tap to dial this USSD code</p>
+                  </div>
+                  
+                  <div className="bg-[#171717] border border-[#DDAA52]/30 rounded-xl p-4">
+                    <div className="flex items-center mb-3">
+                      <svg className="w-5 h-5 text-[#FB8B24] mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M4.083 9h1.946c.089-1.546.383-2.97.837-4.118A6.004 6.004 0 004.083 9zM10 2a8 8 0 100 16 8 8 0 000-16zm0 2c-.076 0-.232.032-.465.262-.238.234-.497.623-.737 1.182-.389.907-.673 2.142-.766 3.556h3.936c-.093-1.414-.377-2.649-.766-3.556-.24-.56-.5-.948-.737-1.182C10.232 4.032 10.076 4 10 4zm3.971 5c-.089-1.546-.383-2.97-.837-4.118A6.004 6.004 0 0115.917 9h-1.946zm-2.003 2H8.032c.093 1.414.377 2.649.766 3.556.24.56.5.948.737 1.182.233.23.389.262.465.262.076 0 .232-.032.465-.262.238-.234.498-.623.737-1.182.389-.907.673-2.142.766-3.556zm1.166 4.118c.454-1.147.748-2.572.837-4.118h1.946a6.004 6.004 0 01-2.783 4.118zm-6.268 0C6.412 13.97 6.118 12.546 6.03 11H4.083a6.004 6.004 0 002.783 4.118z" clipRule="evenodd" />
+                      </svg>
+                      <span className="text-[#FFFFFF] font-medium">Web Link</span>
+                    </div>
+                    <input
+                      type="url"
+                      placeholder="https://tickets.example.com/event123"
+                      value={formData.ticketTypes.webLink || ''}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        ticketTypes: {
+                          ...prev.ticketTypes,
+                          webLink: e.target.value
+                        }
+                      }))}
+                      className="w-full px-3 py-2 bg-[#000000] border border-[#DDAA52]/30 rounded-lg text-[#FFFFFF] placeholder-white/50 focus:ring-2 focus:ring-[#FB8B24]"
+                    />
+                    <p className="text-[#DDAA52] text-xs mt-2">Direct link to ticket purchase page</p>
+                  </div>
+                </div>
+                
+                <div className="bg-[#FB8B24]/10 border border-[#FB8B24]/30 rounded-xl p-4">
+                  <div className="flex items-center mb-2">
+                    <svg className="w-4 h-4 text-[#FB8B24] mr-2" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                    <span className="text-[#FB8B24] font-medium text-sm">Ticket Purchase Info</span>
+                  </div>
+                  <p className="text-[#FFFFFF] text-sm">
+                    Provide either a USSD code for mobile payments or a web link for online ticket purchases. 
+                    Clients will see clickable options to buy tickets directly from the event details.
+                  </p>
+                </div>
               </div>
             )}
           </div>

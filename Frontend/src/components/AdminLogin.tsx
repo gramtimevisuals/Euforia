@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { toast } from 'sonner';
+import { useState } from 'react';
 import { API_URL } from '../config';
 
 interface AdminLoginProps {
@@ -7,85 +6,71 @@ interface AdminLoginProps {
 }
 
 export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    console.log('Attempting admin login with:', { email, password });
+    setError('');
 
     try {
       const response = await fetch(`${API_URL}/api/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ pin })
       });
 
-      console.log('Response status:', response.status);
       const data = await response.json();
-      console.log('Response data:', data);
 
       if (response.ok) {
         localStorage.setItem('adminToken', data.token);
-        toast.success('Admin login successful');
         onLoginSuccess();
       } else {
-        toast.error(data.message || 'Invalid admin credentials');
+        setError('Invalid PIN. Access denied.');
       }
-    } catch (error) {
-      console.error('Login error:', error);
-      toast.error('Login failed');
+    } catch {
+      setError('Cannot connect to server. Make sure the backend is running.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-      <div className="bg-white/10 backdrop-blur-md rounded-3xl border border-white/20 p-8 max-w-md w-full mx-4">
-        <h2 className="text-3xl font-bold text-white text-center mb-8">Admin Login</h2>
-        
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <input
-              type="email"
-              placeholder="Admin Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50"
-              required
-            />
-          </div>
-          
-          <div>
-            <input
-              type="password"
-              placeholder="Admin Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50"
-              required
-            />
-          </div>
-          
+    <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+      <div className="bg-[#171717] border border-[#DDAA52]/30 rounded-3xl p-10 w-full max-w-sm mx-4">
+        <div className="text-center mb-8">
+          <img src="/logo.png" alt="Euforia" className="h-14 w-auto mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-white">Admin Access</h2>
+          <p className="text-white/50 text-sm mt-1">Enter your admin PIN to continue</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="password"
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            placeholder="Enter PIN"
+            required
+            autoFocus
+            className="w-full px-4 py-3 bg-[#0a0a0a] border border-[#DDAA52]/30 rounded-xl text-white text-center text-2xl tracking-widest placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-[#FB8B24]"
+          />
+
+          {error && (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+              <p className="text-red-400 text-sm text-center">{error}</p>
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-pink-400 to-rose-500 text-white py-3 px-6 rounded-xl font-semibold hover:from-pink-500 hover:to-rose-600 transition-all disabled:opacity-50"
+            disabled={loading || pin.length === 0}
+            className="w-full bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black py-3 rounded-xl font-bold text-lg hover:from-[#DDAA52] hover:to-[#FB8B24] transition-all disabled:opacity-50"
           >
-            {loading ? 'Logging in...' : 'Login as Admin'}
+            {loading ? 'Verifying...' : 'Access Dashboard'}
           </button>
         </form>
-        
-        <div className="mt-6 p-4 bg-yellow-500/20 border border-yellow-400/30 rounded-lg">
-          <p className="text-yellow-300 text-sm text-center">
-            Demo Credentials:<br />
-            Email: admin@eventapp.com<br />
-            Password: admin123
-          </p>
-        </div>
       </div>
     </div>
   );

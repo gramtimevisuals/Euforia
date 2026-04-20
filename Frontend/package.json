@@ -5,18 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@chakra-ui/icons": "^2.1.1",
+    "@chakra-ui/react": "^2.8.2",
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0",
     "@supabase/supabase-js": "^2.57.4",
-    "clsx": "^2.1.1",
+    "framer-motion": "^10.16.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "socket.io-client": "^4.7.5",
-    "sonner": "^1.5.0",
-    "tailwind-merge": "^3.5.0"
+    "sonner": "^1.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",

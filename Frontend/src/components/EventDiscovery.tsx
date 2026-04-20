@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
+import { Box, Flex, Button, Text, Badge, VStack, HStack, Heading, useColorModeValue } from '@chakra-ui/react';
+import { SettingsIcon, CalendarIcon, StarIcon, TimeIcon, SearchIcon } from '@chakra-ui/icons';
 import { toast } from "sonner";
 import { API_URL } from '../config';
 import UpsellModal from './UpsellModal';
@@ -6,8 +8,8 @@ import SmartSearchBar from './SmartSearchBar';
 import { useEngagement } from '../hooks/useEngagement';
 import { useSentimentAnalysis } from '../hooks/useSentimentAnalysis';
 import { useNotifications } from '../hooks/useNotifications';
-import TicketPurchase from './TicketPurchase';
 import { currencyService } from '../services/currencyService';
+import { currencyConverter } from '../services/currencyConverter';
 import GroupPlanning from './GroupPlanning';
 import { OfflineService } from '../services/offlineService';
 import { RecommendationService } from '../services/recommendationService';
@@ -47,7 +49,6 @@ interface Event {
   flyerUrl?: string;
   flyer_url?: string;
   isVirtual?: boolean;
-  hasTickets?: boolean;
   price?: number;
   priceCategory?: string;
   is_exclusive?: boolean;
@@ -77,11 +78,20 @@ interface EventDiscoveryProps {
   currency: { code: string; symbol: string };
 }
 
+interface ConvertedPrice {
+  original: { amount: number; currency: string; };
+  converted: { amount: number; currency: string; };
+  rate: number;
+}
+
 export default function EventDiscovery({ userLocation, currency }: EventDiscoveryProps) {
   const [events, setEvents] = useState<Event[]>([]);
   const [forYouEvents, setForYouEvents] = useState<Event[]>([]);
   const [recommendations, setRecommendations] = useState<Event[]>([]);
   const [savedEvents, setSavedEvents] = useState<Event[]>([]);
+  const [searchResults, setSearchResults] = useState<Event[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [userPreferences, setUserPreferences] = useState<any>(null);
   const [userGroups, setUserGroups] = useState<any[]>([]);
   const [friendActivity, setFriendActivity] = useState<any[]>([]);
@@ -96,6 +106,8 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
   const [showPriceFilters, setShowPriceFilters] = useState(false);
   const [showDateFilters, setShowDateFilters] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [userCurrency, setUserCurrency] = useState('USD');
+  const [showOriginalPrice, setShowOriginalPrice] = useState(false);
   
   const { trackRating, trackInterested, sendFeedback } = useEngagement();
   const { analyzeComment } = useSentimentAnalysis();
@@ -186,10 +198,8 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (userLocation) {
-        params.append('latitude', userLocation.latitude.toString());
-        params.append('longitude', userLocation.longitude.toString());
-      }
+      params.append('latitude', userLocation.latitude.toString());
+      params.append('longitude', userLocation.longitude.toString());
       params.append('radius', filters.radius.toString());
       if (filters.categories.length) params.append('category', filters.categories.join(','));
       if (filters.priceCategories.length) params.append('priceCategory', filters.priceCategories.join(','));
@@ -233,19 +243,26 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
   };
 
   const fetchSavedEvents = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+    const token = sessionStorage.getItem('token');
+    if (!token) {
+      setSavedEvents([]);
+      return;
+    }
 
     try {
       const response = await fetch(`${API_URL}/api/events/user/saved`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const data = await response.json();
       if (response.ok) {
+        const data = await response.json();
         setSavedEvents(data);
+      } else if (response.status === 401) {
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('user');
+        setSavedEvents([]);
       }
     } catch (error) {
-      console.error('Failed to fetch saved events');
+      setSavedEvents([]);
     }
   };
 
@@ -254,7 +271,7 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
       toast.error("Invalid event ID");
       return;
     }
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (!token) {
       toast.error("Please log in to RSVP");
       return;
@@ -292,7 +309,7 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
   };
 
   const handleRating = async (eventId: string, rating: number) => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (!token) {
       toast.error("Please log in to rate");
       return;
@@ -321,7 +338,7 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
   };
 
   const handleComment = async (eventId: string, comment: string) => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (!token) {
       toast.error("Please log in to comment");
       return;
@@ -342,7 +359,7 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
       if (response.ok) {
         toast.success('Comment added!');
         if (analysis?.sentiment === 'positive') {
-          toast.success('Thanks for the positive feedback! 😊');
+          toast.success('Thanks for the positive feedback!');
         }
         fetchEvents();
       } else {
@@ -356,6 +373,7 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
   useEffect(() => {
     // Initialize currency based on location
     currencyService.initializeCurrency();
+    initializeCurrency();
     
     fetchEvents();
     fetchPersonalizedRecommendations();
@@ -363,217 +381,373 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
     // Auto-enable smart alerts
     requestNotificationPermission();
 
-    // Poll for new events every 30 seconds
-    const interval = setInterval(() => {
-      fetchEvents();
+    // Listen for saved events changes
+    const handleSavedEventsChange = () => {
       if (activeTab === 'saved') {
         fetchSavedEvents();
       }
-    }, 30000);
+    };
+    window.addEventListener('savedEventsChanged', handleSavedEventsChange);
 
-    return () => clearInterval(interval);
+    // Silent background refresh every 60 seconds
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchEvents();
+        if (activeTab === 'saved') {
+          fetchSavedEvents();
+        }
+        fetchPersonalizedRecommendations();
+      }
+    }, 60000);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('savedEventsChanged', handleSavedEventsChange);
+    };
   }, [userLocation, filters]);
 
+  const initializeCurrency = async () => {
+    await currencyConverter.updateRates();
+    const detectedCurrency = await currencyConverter.detectUserCurrency(userLocation);
+    setUserCurrency(detectedCurrency);
+  };
+
+  const convertPrice = (price: number, fromCurrency: string = 'USD'): ConvertedPrice => {
+    const convertedAmount = currencyConverter.convert(price, fromCurrency, userCurrency);
+    return {
+      original: { amount: price, currency: fromCurrency },
+      converted: { amount: convertedAmount, currency: userCurrency },
+      rate: convertedAmount / price
+    };
+  };
+
+  const handleSearch = async (query: string) => {
+    if (!query.trim()) {
+      setIsSearching(false);
+      setSearchResults([]);
+      setSearchQuery('');
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchQuery(query);
+    setLoading(true);
+
+    try {
+      const params = new URLSearchParams();
+      params.append('q', query);
+      if (userLocation) {
+        params.append('latitude', userLocation.latitude.toString());
+        params.append('longitude', userLocation.longitude.toString());
+      }
+
+      const response = await fetch(`${API_URL}/api/events/search?${params}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setSearchResults(data);
+        toast.success(`Found ${data.length} events for "${query}"`);
+      } else {
+        toast.error(data.message || 'Search failed');
+        setSearchResults([]);
+      }
+    } catch (error) {
+      toast.error('Search failed');
+      setSearchResults([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="space-y-8 bg-black min-h-screen">
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-[#FB8B24]/10 via-[#DDAA52]/10 to-[#A31818]/10 animate-pulse"></div>
-        <div className="relative bg-[#171717] backdrop-blur-xl rounded-3xl border border-[#FB8B24]/30 p-8 text-center">
-          <h2 className="text-5xl font-black bg-gradient-to-r from-[#FB8B24] via-[#DDAA52] to-[#A31818] bg-clip-text text-transparent">
+    <VStack spacing={8} bg="#000000" minH="100vh" w="full">
+      <Box position="relative" overflow="hidden" w="full">
+        <Box 
+          position="absolute" 
+          inset={0} 
+          bg="#000000" 
+          opacity={1}
+        />
+        <Box 
+          position="relative" 
+          bg="#171717" 
+          backdropFilter="blur(20px)" 
+          borderRadius="3xl" 
+          border="1px" 
+          borderColor="rgba(251, 139, 36, 0.3)" 
+          p={8} 
+          textAlign="center"
+        >
+          <Heading 
+            size={['2xl', '3xl', '4xl']} 
+            fontWeight="black" 
+            bgGradient="linear(to-r, #FB8B24, #DDAA52, #A31818)" 
+            bgClip="text" 
+            mb={4}
+          >
             Euforia
-          </h2>
-          <p className="text-[#FFFFFF]/80 text-xl font-medium mb-6">
-            <span className="flex items-center justify-center space-x-4">
-              <span className="flex items-center">
-                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" />
-                </svg>
-                Unlimited radius
-              </span>
-              <span className="flex items-center">
-                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                AI-powered
-              </span>
-              <span className="flex items-center">
-                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M10 2L3 7v11a1 1 0 001 1h12a1 1 0 001-1V7l-7-5zM9 9a1 1 0 012 0v6a1 1 0 11-2 0V9z" />
-                </svg>
-                Smart alerts
-              </span>
-            </span>
-          </p>
+          </Heading>
+          <Text color="whiteAlpha.800" fontSize={['md', 'lg', 'xl']} fontWeight="medium" mb={6}>
+            <HStack justify="center" spacing={[2, 3, 4]} flexWrap="wrap">
+              <HStack>
+                <SearchIcon />
+                <Text>Unlimited radius</Text>
+              </HStack>
+              <HStack>
+                <StarIcon />
+                <Text>AI-powered</Text>
+              </HStack>
+              <HStack>
+                <TimeIcon />
+                <Text>Smart alerts</Text>
+              </HStack>
+            </HStack>
+          </Text>
           
 
         
-          <div className="relative max-w-2xl mx-auto mb-6">
+          <Box position="relative" maxW="2xl" mx="auto" mb={6}>
             <SmartSearchBar 
-              onSearch={() => {}}
+              onSearch={handleSearch}
               placeholder="Try 'Friday night', 'rooftop vibes', 'tech meetups'..."
             />
-          </div>
+          </Box>
         
-          <div className="flex justify-center">
-            <div className="bg-gradient-to-r from-[#FB8B24]/10 to-[#DDAA52]/10 backdrop-blur-xl rounded-2xl border border-[#FB8B24]/30 p-2 flex flex-wrap justify-center gap-2 shadow-2xl max-w-full overflow-x-auto">
-              <button
+          <Flex justify="center">
+            <Box 
+              bg="#171717" 
+              backdropFilter="blur(20px)" 
+              borderRadius="2xl" 
+              border="1px" 
+              borderColor="rgba(251, 139, 36, 0.8)" 
+              p={2} 
+              display="flex" 
+              flexWrap="wrap" 
+              justifyContent="center" 
+              gap={2} 
+              boxShadow="2xl" 
+              maxW="full" 
+              overflowX="auto"
+            >
+              <Button
                 onClick={() => setActiveTab('discover')}
-                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center ${
-                  activeTab === 'discover'
-                    ? 'bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black shadow-lg'
-                    : 'text-[#FFFFFF]/70 hover:text-[#FFFFFF] hover:bg-[#171717]/50'
-                }`}
+                px={6} py={3} 
+                borderRadius="xl" 
+                fontWeight="semibold" 
+                transition="all 0.3s" 
+                transform={activeTab === 'discover' ? 'scale(1.05)' : 'scale(1)'}
+                bg={activeTab === 'discover' ? '#FB8B24' : '#000000'}
+                color={activeTab === 'discover' ? '#000000' : '#FB8B24'}
+                boxShadow={activeTab === 'discover' ? 'lg' : undefined}
+                _hover={{ bg: '#FB8B24', color: '#000000' }}
+                leftIcon={<SearchIcon />}
               >
-                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-                </svg>
                 Discover
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => setActiveTab('for_you')}
-                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center ${
-                  activeTab === 'for_you'
-                    ? 'bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black shadow-lg'
-                    : 'text-[#FFFFFF]/70 hover:text-[#FFFFFF] hover:bg-[#171717]/50'
-                }`}
+                px={6} py={3} 
+                borderRadius="xl" 
+                fontWeight="semibold" 
+                transition="all 0.3s" 
+                transform={activeTab === 'for_you' ? 'scale(1.05)' : 'scale(1)'}
+                bg={activeTab === 'for_you' ? '#FB8B24' : '#000000'}
+                color={activeTab === 'for_you' ? '#000000' : '#FB8B24'}
+                boxShadow={activeTab === 'for_you' ? 'lg' : undefined}
+                _hover={{ bg: '#FB8B24', color: '#000000' }}
+                leftIcon={<StarIcon />}
               >
-                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
                 For You
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => setActiveTab('recommendations')}
-                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center ${
-                  activeTab === 'recommendations'
-                    ? 'bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black shadow-lg'
-                    : 'text-[#FFFFFF]/70 hover:text-[#FFFFFF] hover:bg-[#171717]/50'
-                }`}
+                px={6} py={3} 
+                borderRadius="xl" 
+                fontWeight="semibold" 
+                transition="all 0.3s" 
+                transform={activeTab === 'recommendations' ? 'scale(1.05)' : 'scale(1)'}
+                bg={activeTab === 'recommendations' ? '#FB8B24' : '#000000'}
+                color={activeTab === 'recommendations' ? '#000000' : '#FB8B24'}
+                boxShadow={activeTab === 'recommendations' ? 'lg' : undefined}
+                _hover={{ bg: '#FB8B24', color: '#000000' }}
+                leftIcon={<SettingsIcon />}
               >
-                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" />
-                </svg>
                 Trending
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => setActiveTab('groups')}
-                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center ${
-                  activeTab === 'groups'
-                    ? 'bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black shadow-lg'
-                    : 'text-[#FFFFFF]/70 hover:text-[#FFFFFF] hover:bg-[#171717]/50'
-                }`}
+                px={6} py={3} 
+                borderRadius="xl" 
+                fontWeight="semibold" 
+                transition="all 0.3s" 
+                transform={activeTab === 'groups' ? 'scale(1.05)' : 'scale(1)'}
+                bg={activeTab === 'groups' ? '#FB8B24' : '#000000'}
+                color={activeTab === 'groups' ? '#000000' : '#FB8B24'}
+                boxShadow={activeTab === 'groups' ? 'lg' : undefined}
+                _hover={{ bg: '#FB8B24', color: '#000000' }}
+                leftIcon={<CalendarIcon />}
               >
-                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
-                </svg>
                 Groups
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => {
                   setActiveTab('saved');
                   fetchSavedEvents();
                 }}
-                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center ${
-                  activeTab === 'saved'
-                    ? 'bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black shadow-lg'
-                    : 'text-[#FFFFFF]/70 hover:text-[#FFFFFF] hover:bg-[#171717]/50'
-                }`}
+                px={6} py={3} 
+                borderRadius="xl" 
+                fontWeight="semibold" 
+                transition="all 0.3s" 
+                transform={activeTab === 'saved' ? 'scale(1.05)' : 'scale(1)'}
+                bg={activeTab === 'saved' ? '#FB8B24' : '#000000'}
+                color={activeTab === 'saved' ? '#000000' : '#FB8B24'}
+                boxShadow={activeTab === 'saved' ? 'lg' : undefined}
+                _hover={{ bg: '#FB8B24', color: '#000000' }}
+                leftIcon={<TimeIcon />}
               >
-                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" />
-                </svg>
                 Saved
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => setActiveTab('global_chat')}
-                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center ${
-                  activeTab === 'global_chat'
-                    ? 'bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black shadow-lg'
-                    : 'text-[#FFFFFF]/70 hover:text-[#FFFFFF] hover:bg-[#171717]/50'
-                }`}
+                px={6} py={3} 
+                borderRadius="xl" 
+                fontWeight="semibold" 
+                transition="all 0.3s" 
+                transform={activeTab === 'global_chat' ? 'scale(1.05)' : 'scale(1)'}
+                bg={activeTab === 'global_chat' ? '#FB8B24' : '#000000'}
+                color={activeTab === 'global_chat' ? '#000000' : '#FB8B24'}
+                boxShadow={activeTab === 'global_chat' ? 'lg' : undefined}
+                _hover={{ bg: '#FB8B24', color: '#000000' }}
+                leftIcon={<SearchIcon />}
               >
-                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
-                </svg>
                 Global Chat
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+              </Button>
+            </Box>
+          </Flex>
+        </Box>
+      </Box>
 
       {/* Filter Sections */}
-      <div className="flex flex-wrap justify-center gap-2 mb-6 px-4">
-        <button
-          onClick={() => setShowBasicFilters(!showBasicFilters)}
-          className="bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 shadow-lg"
+      <Flex flexWrap="wrap" justify="center" gap={[1, 2, 2]} mb={6} px={[2, 4, 4]}>
+        <Button
+          onClick={() => {
+            setShowBasicFilters(!showBasicFilters);
+            setShowLocationFilters(false);
+            setShowPriceFilters(false);
+            setShowDateFilters(false);
+            setShowAdvancedFilters(false);
+          }}
+          bgGradient={showBasicFilters ? "linear(to-r, #FB8B24, #DDAA52)" : undefined}
+          bg={showBasicFilters ? undefined : "#171717"}
+          color={showBasicFilters ? "black" : "#DDAA52"}
+          px={6} py={3}
+          borderRadius="xl"
+          fontWeight="semibold"
+          transition="all 0.3s"
+          transform={showBasicFilters ? 'scale(1.05)' : 'scale(1)'}
+          _hover={{ transform: 'scale(1.05)', bg: showBasicFilters ? undefined : '#DDAA52', color: showBasicFilters ? undefined : '#000000' }}
+          boxShadow="lg"
+          leftIcon={<SettingsIcon />}
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
-          <span>Basic</span>
-          <svg className={`w-3 h-3 transition-transform ${showBasicFilters ? 'rotate-180' : ''}`} fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
-        </button>
+          Basic
+        </Button>
         
-        <button
-          onClick={() => setShowLocationFilters(!showLocationFilters)}
-          className="bg-gradient-to-r from-[#A31818] to-[#CF0E0E] text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 shadow-lg"
+        <Button
+          onClick={() => {
+            setShowLocationFilters(!showLocationFilters);
+            setShowBasicFilters(false);
+            setShowPriceFilters(false);
+            setShowDateFilters(false);
+            setShowAdvancedFilters(false);
+          }}
+          bgGradient={showLocationFilters ? "linear(to-r, #FB8B24, #DDAA52)" : undefined}
+          bg={showLocationFilters ? undefined : "#171717"}
+          color={showLocationFilters ? "black" : "#DDAA52"}
+          px={6} py={3}
+          borderRadius="xl"
+          fontWeight="semibold"
+          transition="all 0.3s"
+          transform={showLocationFilters ? 'scale(1.05)' : 'scale(1)'}
+          _hover={{ transform: 'scale(1.05)', bg: showLocationFilters ? undefined : '#DDAA52', color: showLocationFilters ? undefined : '#000000' }}
+          boxShadow="lg"
+          leftIcon={<CalendarIcon />}
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-          </svg>
-          <span>Location</span>
-          <svg className={`w-3 h-3 transition-transform ${showLocationFilters ? 'rotate-180' : ''}`} fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
-        </button>
+          Location
+        </Button>
         
-        <button
-          onClick={() => setShowPriceFilters(!showPriceFilters)}
-          className="bg-gradient-to-r from-green-600 to-green-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 shadow-lg"
+        <Button
+          onClick={() => {
+            setShowPriceFilters(!showPriceFilters);
+            setShowBasicFilters(false);
+            setShowLocationFilters(false);
+            setShowDateFilters(false);
+            setShowAdvancedFilters(false);
+          }}
+          bgGradient={showPriceFilters ? "linear(to-r, #FB8B24, #DDAA52)" : undefined}
+          bg={showPriceFilters ? undefined : "#171717"}
+          color={showPriceFilters ? "black" : "#DDAA52"}
+          px={6} py={3}
+          borderRadius="xl"
+          fontWeight="semibold"
+          transition="all 0.3s"
+          transform={showPriceFilters ? 'scale(1.05)' : 'scale(1)'}
+          _hover={{ transform: 'scale(1.05)', bg: showPriceFilters ? undefined : '#DDAA52', color: showPriceFilters ? undefined : '#000000' }}
+          boxShadow="lg"
+          leftIcon={<StarIcon />}
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
-          </svg>
-          <span>Price</span>
-          <svg className={`w-3 h-3 transition-transform ${showPriceFilters ? 'rotate-180' : ''}`} fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
-        </button>
+          Price
+        </Button>
         
-        <button
-          onClick={() => setShowDateFilters(!showDateFilters)}
-          className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 shadow-lg"
+        <Button
+          onClick={() => {
+            setShowDateFilters(!showDateFilters);
+            setShowBasicFilters(false);
+            setShowLocationFilters(false);
+            setShowPriceFilters(false);
+            setShowAdvancedFilters(false);
+          }}
+          bgGradient={showDateFilters ? "linear(to-r, #FB8B24, #DDAA52)" : undefined}
+          bg={showDateFilters ? undefined : "#171717"}
+          color={showDateFilters ? "black" : "#DDAA52"}
+          px={6} py={3}
+          borderRadius="xl"
+          fontWeight="semibold"
+          transition="all 0.3s"
+          transform={showDateFilters ? 'scale(1.05)' : 'scale(1)'}
+          _hover={{ transform: 'scale(1.05)', bg: showDateFilters ? undefined : '#DDAA52', color: showDateFilters ? undefined : '#000000' }}
+          boxShadow="lg"
+          leftIcon={<TimeIcon />}
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
-          </svg>
-          <span>Date</span>
-          <svg className={`w-3 h-3 transition-transform ${showDateFilters ? 'rotate-180' : ''}`} fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
-        </button>
+          Date
+        </Button>
         
-        <button
-          onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-          className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 flex items-center space-x-2 shadow-lg"
+        <Button
+          onClick={() => {
+            setShowAdvancedFilters(!showAdvancedFilters);
+            setShowBasicFilters(false);
+            setShowLocationFilters(false);
+            setShowPriceFilters(false);
+            setShowDateFilters(false);
+          }}
+          bgGradient={showAdvancedFilters ? "linear(to-r, #FB8B24, #DDAA52)" : undefined}
+          bg={showAdvancedFilters ? undefined : "#171717"}
+          color={showAdvancedFilters ? "black" : "#DDAA52"}
+          px={6} py={3}
+          borderRadius="xl"
+          fontWeight="semibold"
+          transition="all 0.3s"
+          transform={showAdvancedFilters ? 'scale(1.05)' : 'scale(1)'}
+          _hover={{ transform: 'scale(1.05)', bg: showAdvancedFilters ? undefined : '#DDAA52', color: showAdvancedFilters ? undefined : '#000000' }}
+          boxShadow="lg"
+          leftIcon={<SearchIcon />}
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-          </svg>
-          <span>Advanced</span>
-          <svg className={`w-3 h-3 transition-transform ${showAdvancedFilters ? 'rotate-180' : ''}`} fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
-        </button>
-      </div>
+          Advanced
+        </Button>
+      </Flex>
 
       {/* Basic Filters */}
       {showBasicFilters && (
-        <div className="bg-gradient-to-br from-[#171717] to-[#171717]/80 backdrop-blur-xl rounded-3xl border border-[#FB8B24]/30 p-6 mb-6">
+        <Box bg="#171717" backdropFilter="blur(20px)" borderRadius="3xl" border="1px" borderColor="#FB8B24" borderOpacity={0.3} p={6} mb={6} w="full" maxW="4xl" mx="auto">
           <h3 className="text-lg font-bold text-[#FB8B24] mb-4 flex items-center">
             <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -629,12 +803,12 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
               </div>
             </div>
           </div>
-        </div>
+        </Box>
       )}
 
       {/* Location Filters */}
       {showLocationFilters && (
-        <div className="bg-gradient-to-br from-[#171717] to-[#171717]/80 backdrop-blur-xl rounded-3xl border border-[#A31818]/30 p-6 mb-6">
+        <Box bg="#171717" backdropFilter="blur(20px)" borderRadius="3xl" border="1px" borderColor="#DDAA52" borderOpacity={0.3} p={6} mb={6} w="full" maxW="4xl" mx="auto">
           <h3 className="text-lg font-bold text-[#A31818] mb-4 flex items-center">
             <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
@@ -654,12 +828,12 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
               className="w-full h-2 bg-[#171717] rounded-lg appearance-none cursor-pointer"
             />
           </div>
-        </div>
+        </Box>
       )}
 
       {/* Price Filters */}
       {showPriceFilters && (
-        <div className="bg-gradient-to-br from-[#171717] to-[#171717]/80 backdrop-blur-xl rounded-3xl border border-green-600/30 p-6 mb-6">
+        <Box bg="#171717" backdropFilter="blur(20px)" borderRadius="3xl" border="1px" borderColor="#DDAA52" borderOpacity={0.3} p={6} mb={6} w="full" maxW="4xl" mx="auto">
           <h3 className="text-lg font-bold text-green-400 mb-4 flex items-center">
             <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
               <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
@@ -716,12 +890,12 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
               </div>
             </div>
           </div>
-        </div>
+        </Box>
       )}
 
       {/* Date Filters */}
       {showDateFilters && (
-        <div className="bg-gradient-to-br from-[#171717] to-[#171717]/80 backdrop-blur-xl rounded-3xl border border-purple-600/30 p-6 mb-6">
+        <Box bg="#171717" backdropFilter="blur(20px)" borderRadius="3xl" border="1px" borderColor="#DDAA52" borderOpacity={0.3} p={6} mb={6} w="full" maxW="4xl" mx="auto">
           <h3 className="text-lg font-bold text-purple-400 mb-4 flex items-center">
             <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
@@ -755,12 +929,12 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
               placeholder="To Date"
             />
           </div>
-        </div>
+        </Box>
       )}
 
       {/* Advanced Filters */}
       {showAdvancedFilters && (
-        <div className="bg-gradient-to-br from-[#171717] to-[#171717]/80 backdrop-blur-xl rounded-3xl border border-indigo-600/30 p-6 mb-6">
+        <Box bg="#171717" backdropFilter="blur(20px)" borderRadius="3xl" border="1px" borderColor="#DDAA52" borderOpacity={0.3} p={6} mb={6} w="full" maxW="4xl" mx="auto">
           <h3 className="text-lg font-bold text-indigo-400 mb-4 flex items-center">
             <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
@@ -825,11 +999,61 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
               </div>
             </div>
           </div>
+        </Box>
+      )}
+
+      {/* Search Results */}
+      {isSearching && (
+        <div className="space-y-4 px-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-bold text-[#FFFFFF]">Search Results for "{searchQuery}"</h3>
+            <button
+              onClick={() => {
+                setIsSearching(false);
+                setSearchResults([]);
+                setSearchQuery('');
+              }}
+              className="px-4 py-2 bg-[#171717] text-[#DDAA52] border border-[#DDAA52]/30 rounded-xl hover:bg-[#DDAA52] hover:text-black transition-all"
+            >
+              Clear Search
+            </button>
+          </div>
+          
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+            </div>
+          ) : searchResults.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {searchResults.map((event, index) => (
+                <PremiumEventCard
+                  key={`search-${event.id || event._id || `temp-${index}`}`}
+                  event={event}
+                  onRSVP={(eventId, status) => handleRSVP(event.id || event._id || eventId, status)}
+                  onRate={(eventId, rating) => handleRating(event.id || event._id || eventId, rating)}
+                  onComment={(eventId, comment) => handleComment(event.id || event._id || eventId, comment)}
+                  currency={currency}
+                  userCurrency={userCurrency}
+                  convertPrice={convertPrice}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <div className="w-20 h-20 bg-[#171717] rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-[#DDAA52]" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">No Events Found</h3>
+              <p className="text-white/70">Try searching with different keywords</p>
+            </div>
+          )}
         </div>
       )}
 
       {/* Tab Content */}
-      {activeTab === 'discover' && userLocation && (
+      {!isSearching && activeTab === 'discover' && userLocation && (
         <>
           {loading ? (
             <div className="text-center py-12">
@@ -843,16 +1067,18 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
                 if (filters.priceRange.min > 0 && event.price < filters.priceRange.min) return false;
                 if (filters.priceRange.max < 1000 && event.price > filters.priceRange.max) return false;
                 if (filters.rating > 0 && event.rating < filters.rating) return false;
-                if (filters.hasTickets !== null && event.hasTickets !== filters.hasTickets) return false;
+                if (filters.hasTickets !== null && (event.price > 0) !== filters.hasTickets) return false;
                 return true;
               }).map((event, index) => (
                 <PremiumEventCard
-                  key={event.id || event._id || index}
+                  key={`discover-${event.id || event._id || `temp-${index}`}`}
                   event={event}
                   onRSVP={(eventId, status) => handleRSVP(event.id || event._id || eventId, status)}
                   onRate={(eventId, rating) => handleRating(event.id || event._id || eventId, rating)}
                   onComment={(eventId, comment) => handleComment(event.id || event._id || eventId, comment)}
                   currency={currency}
+                  userCurrency={userCurrency}
+                  convertPrice={convertPrice}
                 />
               ))}
             </div>
@@ -860,7 +1086,7 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
         </>
       )}
       
-      {activeTab === 'for_you' && (
+      {!isSearching && activeTab === 'for_you' && (
         <div className="space-y-8">
           {/* AI Recommendations */}
           <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 backdrop-blur-xl rounded-3xl border border-purple-400/20 p-6">
@@ -875,14 +1101,16 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
             </div>
             {forYouEvents.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 px-4">
-                {forYouEvents.slice(0, 6).map((event) => (
-                  <div key={event._id} className="relative">
+                {forYouEvents.slice(0, 6).map((event, index) => (
+                  <div key={`for-you-${event._id || event.id || `temp-${index}`}`} className="relative">
                     <PremiumEventCard
                       event={event}
                       onRSVP={handleRSVP}
                       onRate={handleRating}
                       onComment={handleComment}
                       currency={currency}
+                      userCurrency={userCurrency}
+                      convertPrice={convertPrice}
                     />
                     {event.recommendationScore && (
                       <div className="absolute top-2 left-2 bg-purple-500 text-white text-xs px-2 py-1 rounded-full">
@@ -932,7 +1160,7 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
         </div>
       )}
       
-      {activeTab === 'recommendations' && (
+      {!isSearching && activeTab === 'recommendations' && (
         <div className="space-y-8">
           {/* Trending Events */}
           <div className="bg-gradient-to-br from-orange-500/10 to-red-500/10 backdrop-blur-xl rounded-3xl border border-orange-400/20 p-6">
@@ -947,14 +1175,16 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
             </div>
             {recommendations.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 px-4">
-                {recommendations.map((event) => (
-                  <div key={event._id} className="relative">
+                {recommendations.map((event, index) => (
+                  <div key={`trending-${event._id || event.id || `temp-${index}`}`} className="relative">
                     <PremiumEventCard
                       event={event}
                       onRSVP={handleRSVP}
                       onRate={handleRating}
                       onComment={handleComment}
                       currency={currency}
+                      userCurrency={userCurrency}
+                      convertPrice={convertPrice}
                     />
                     <div className="absolute top-2 left-2 bg-orange-500 text-white text-xs px-2 py-1 rounded-full">
                       Trending
@@ -971,11 +1201,11 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
         </div>
       )}
       
-      {activeTab === 'groups' && (
+      {!isSearching && activeTab === 'groups' && (
         <GroupPlanning />
       )}
       
-      {activeTab === 'saved' && (
+      {!isSearching && activeTab === 'saved' && (
         <div className="space-y-8">
           {/* Saved Events Header */}
           <div className="bg-gradient-to-r from-[#FB8B24]/10 via-[#DDAA52]/10 to-[#A31818]/10 backdrop-blur-xl rounded-3xl border border-[#FB8B24]/30 p-6 text-center">
@@ -993,14 +1223,16 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
           {/* Saved Events */}
           {savedEvents.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 px-4">
-              {savedEvents.map((event) => (
-                <div key={event._id || event.id} className="relative">
+              {savedEvents.map((event, index) => (
+                <div key={`saved-${event._id || event.id || `temp-${index}`}`} className="relative">
                   <PremiumEventCard
                     event={event}
                     onRSVP={handleRSVP}
                     onRate={handleRating}
                     onComment={handleComment}
                     currency={currency}
+                    userCurrency={userCurrency}
+                    convertPrice={convertPrice}
                   />
                   <div className="absolute top-2 left-2 bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] text-black text-xs px-3 py-1 rounded-full font-bold">
                     SAVED
@@ -1022,7 +1254,7 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
         </div>
       )}
       
-      {activeTab === 'global_chat' && (
+      {!isSearching && activeTab === 'global_chat' && (
         <div className="text-center py-12">
           <button
             onClick={() => setShowGlobalChat(true)}
@@ -1070,19 +1302,23 @@ export default function EventDiscovery({ userLocation, currency }: EventDiscover
         feature={upsellFeature}
         benefit={upsellBenefit}
       />
-    </div>
+    </VStack>
   );
 }
 
-function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
+function PremiumEventCard({ event, onRSVP, onRate, onComment, currency, userCurrency, convertPrice }: {
   event: Event;
   onRSVP: (eventId: string, status: "going" | "interested") => void;
   onRate: (eventId: string, rating: number) => void;
   onComment: (eventId: string, comment: string) => void;
   currency: { code: string; symbol: string };
+  userCurrency: string;
+  convertPrice: (price: number, fromCurrency?: string) => ConvertedPrice;
 }) {
   const [showComments, setShowComments] = useState(false);
+  const [showOriginalPrice, setShowOriginalPrice] = useState(false);
   const [newComment, setNewComment] = useState('');
+  const [comments, setComments] = useState<Array<{id: string, comment: string, created_at: string, users: {first_name: string, last_name: string}}>>([]);
   const [isOfflineDownloaded, setIsOfflineDownloaded] = useState(() => {
     try {
       const offlineEvents = JSON.parse(localStorage.getItem('offlineEvents') || '[]');
@@ -1098,17 +1334,61 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [userGroups, setUserGroups] = useState<any[]>([]);
   const [isSaved, setIsSaved] = useState(false);
+
+  // Check if event is saved on mount
+  useEffect(() => {
+    checkIfSaved();
+  }, [event._id, event.id]);
+
+  const checkIfSaved = async () => {
+    const token = sessionStorage.getItem('token');
+    if (!token) {
+      setIsSaved(false);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/events/user/saved`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const savedEvents = await response.json();
+        const eventId = event._id || event.id;
+        const isEventSaved = savedEvents.some((e: any) => (e._id || e.id) === eventId);
+        setIsSaved(isEventSaved);
+      } else if (response.status === 401) {
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('user');
+        setIsSaved(false);
+      }
+    } catch (error) {
+      setIsSaved(false);
+    }
+  };
   const [showLocationMap, setShowLocationMap] = useState(false);
   const [mapImageUrl, setMapImageUrl] = useState<string>('');
   const hasTrackedView = useRef(false);
 
-  // Track click when card is viewed (only once)
+  // Track click when card is viewed (only once) and fetch comments
   useEffect(() => {
     if (!hasTrackedView.current) {
       RecommendationService.trackInteraction(event._id || event.id, 'click');
       hasTrackedView.current = true;
     }
+    fetchComments();
   }, [event._id, event.id]);
+
+  const fetchComments = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/events/${event._id || event.id}/comments`);
+      if (response.ok) {
+        const data = await response.json();
+        setComments(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch comments:', error);
+    }
+  };
 
   const loadSimilarEvents = async () => {
     if (similarEvents.length === 0) {
@@ -1199,7 +1479,7 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
     RecommendationService.trackInteraction(event._id || event.id, 'share');
     
     if (userGroups.length === 0) {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       if (token) {
         try {
           const response = await fetch(`${API_URL}/api/groups/my-groups`, {
@@ -1207,13 +1487,14 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
           });
           if (response.ok) {
             const groups = await response.json();
-            console.log('Fetched groups:', groups);
             setUserGroups(groups);
-          } else {
-            console.error('Failed to fetch groups:', response.status);
+          } else if (response.status === 401) {
+            sessionStorage.removeItem('token');
+            sessionStorage.removeItem('user');
+            setUserGroups([]);
           }
         } catch (error) {
-          console.error('Failed to fetch groups:', error);
+          setUserGroups([]);
         }
       }
     }
@@ -1222,7 +1503,7 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
   };
 
   const shareEventToGroup = async (groupId: string) => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (!token) return;
 
     try {
@@ -1253,7 +1534,7 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
   };
 
   const handleSaveEvent = async () => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (!token) {
       toast.error('Please log in to save events');
       return;
@@ -1274,10 +1555,9 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
         RecommendationService.trackInteraction(event._id || event.id, 'save');
         toast.success(newSavedState ? 'Event saved!' : 'Event unsaved!');
         
-        // Refresh saved events list if we're on saved tab
-        if (activeTab === 'saved') {
-          fetchSavedEvents();
-        }
+        // Refresh saved events list and recheck save status
+        await checkIfSaved();
+        window.dispatchEvent(new CustomEvent('savedEventsChanged'));
       } else {
         toast.error('Failed to save event');
       }
@@ -1291,7 +1571,7 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
       return;
     }
 
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (!token) return;
 
     try {
@@ -1323,16 +1603,37 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
       )}
       
       {(event.flyerUrl || event.flyer_url) && (
-        <div className="aspect-video overflow-hidden">
+        <div className="aspect-video overflow-hidden relative group">
           <img
             src={event.flyerUrl || event.flyer_url}
             alt={event.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
             onError={(e) => {
               console.log('Image failed to load:', event.flyerUrl || event.flyer_url);
-              e.currentTarget.style.display = 'none';
+              // Don't hide the image, let it show broken image icon
             }}
           />
+          <button
+            onClick={async () => {
+              try {
+                const response = await fetch(event.flyerUrl || event.flyer_url);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${event.title}-flyer.jpg`;
+                link.click();
+                window.URL.revokeObjectURL(url);
+              } catch (error) {
+                window.open(event.flyerUrl || event.flyer_url, '_blank');
+              }
+            }}
+            className="absolute top-2 right-2 bg-black/50 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
         </div>
       )}
       
@@ -1357,13 +1658,13 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
             <p className="text-white/60 text-sm">
               by {event.users?.first_name || event.creator?.firstName || event.creator?.first_name || 'Unknown'} {event.users?.last_name || event.creator?.lastName || event.creator?.last_name || 'User'}
             </p>
-            {event.rating && (
+{(() => { const r = Number(event.rating); return r > 0 ? (
               <div className="flex items-center">
                 <div className="flex items-center mr-1">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <svg
                       key={star}
-                      className={`w-3 h-3 ${star <= Math.round(event.rating) ? 'text-[#DDAA52]' : 'text-white/20'}`}
+                      className={`w-3 h-3 ${star <= Math.round(r) ? 'text-[#DDAA52]' : 'text-white/20'}`}
                       fill="currentColor"
                       viewBox="0 0 20 20"
                     >
@@ -1371,13 +1672,11 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
                     </svg>
                   ))}
                 </div>
-                <span className="text-white/70 text-xs">{event.rating.toFixed(1)}</span>
+                <span className="text-white/70 text-xs">{r.toFixed(1)}</span>
               </div>
-            )}
+            ) : null; })()}
           </div>
-          {event.hasTickets && event.price > 0 && (
-            <p className="text-green-400 font-semibold">{currency.symbol}{event.price}</p>
-          )}
+
           
           {/* Analytics button for event owner/admin */}
           {(event.isOwner || event.isAdmin) && (
@@ -1458,10 +1757,21 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
                   <div className="mt-3 pt-3 border-t border-[#DDAA52]/20">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-[#FFFFFF]/70">Performance</span>
-                      <span className="text-[#DDAA52] font-semibold">
-                        {event.analytics?.engagement > 25 ? '🔥 Trending' : 
-                         event.analytics?.engagement > 15 ? '📈 Growing' : 
-                         '👀 Getting noticed'}
+                      <span className="text-[#DDAA52] font-semibold flex items-center">
+                        {event.analytics?.engagement > 25 ? (
+                          <><svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" />
+                          </svg>Trending</>
+                        ) : event.analytics?.engagement > 15 ? (
+                          <><svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>Growing</>
+                        ) : (
+                          <><svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                            <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                          </svg>Getting noticed</>
+                        )}
                       </span>
                     </div>
                   </div>
@@ -1491,30 +1801,45 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
           {event.description}
         </p>
 
-        {/* Ticket Purchase / Free Event Attendance */}
-        {event.hasTickets && event.price > 0 ? (
-          <div className="mb-4">
-            <button className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-2 px-4 rounded-xl font-medium hover:from-green-600 hover:to-green-700 transition-all text-sm">
-              {event.is_exclusive ? (
-                <>
-                  Early Access {currency.symbol}{(event.price * 0.8).toFixed(2)}
-                  <span className="ml-1 text-yellow-300">(20% Premium Discount!)</span>
-                </>
-              ) : (
-                <>
-                  Buy Ticket {currency.symbol}{event.price}
-                </>
+        {/* Event Attendance */}
+        <div className="mb-4">
+          {event.price > 0 || event.ticketTypes ? (
+            <div className="space-y-2">
+              <div className="text-center mb-3">
+                <span className="text-[#FB8B24] font-semibold">Paid Event - Purchase Tickets</span>
+              </div>
+              
+              {event.ticketTypes?.ussdCode && (
+                <button
+                  onClick={() => window.location.href = `tel:${event.ticketTypes.ussdCode}`}
+                  className="w-full py-2 px-4 rounded-xl font-medium transition-all text-sm flex items-center justify-center bg-[#FB8B24] text-black hover:bg-[#DDAA52]"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
+                  </svg>
+                  Dial {event.ticketTypes.ussdCode}
+                </button>
               )}
-            </button>
-          </div>
-        ) : (
-          <div className="mb-4">
+              
+              {event.ticketTypes?.webLink && (
+                <button
+                  onClick={() => window.open(event.ticketTypes.webLink, '_blank')}
+                  className="w-full py-2 px-4 rounded-xl font-medium transition-all text-sm flex items-center justify-center bg-[#171717] text-[#DDAA52] border border-[#DDAA52]/30 hover:bg-[#DDAA52] hover:text-black"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4.083 9h1.946c.089-1.546.383-2.97.837-4.118A6.004 6.004 0 004.083 9zM10 2a8 8 0 100 16 8 8 0 000-16zm0 2c-.076 0-.232.032-.465.262-.238.234-.497.623-.737 1.182-.389.907-.673 2.142-.766 3.556h3.936c-.093-1.414-.377-2.649-.766-3.556-.24-.56-.5-.948-.737-1.182C10.232 4.032 10.076 4 10 4zm3.971 5c-.089-1.546-.383-2.97-.837-4.118A6.004 6.004 0 0115.917 9h-1.946zm-2.003 2H8.032c.093 1.414.377 2.649.766 3.556.24.56.5.948.737 1.182.233.23.389.262.465.262.076 0 .232-.032.465-.262.238-.234.498-.623.737-1.182.389-.907.673-2.142.766-3.556zm1.166 4.118c.454-1.147.748-2.572.837-4.118h1.946a6.004 6.004 0 01-2.783 4.118zm-6.268 0C6.412 13.97 6.118 12.546 6.03 11H4.083a6.004 6.004 0 002.783 4.118z" clipRule="evenodd" />
+                  </svg>
+                  Buy Online
+                </button>
+              )}
+            </div>
+          ) : (
             <button 
               onClick={() => onRSVP(event.id || event._id || 'temp-id', "going")}
               className={`w-full py-2 px-4 rounded-xl font-medium transition-all text-sm flex items-center justify-center ${
                 event.userRSVP === 'going'
-                  ? 'bg-gradient-to-r from-green-500 to-green-600 text-white'
-                  : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700'
+                  ? 'bg-[#FB8B24] text-black'
+                  : 'bg-[#171717] text-[#DDAA52] border border-[#DDAA52]/30 hover:bg-[#DDAA52] hover:text-black'
               }`}
             >
               <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -1525,77 +1850,55 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
                 )}
               </svg>
               {event.userRSVP === 'going' ? 'Attending' : 'Attend Event'}
-              <span className="ml-2 text-xs bg-white/20 px-2 py-1 rounded-full">Free</span>
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="space-y-2">
-          {/* Show secondary interested button for free events */}
-          {(!event.hasTickets || event.price === 0) && (
-            <div className="flex space-x-2">
-              <button
-                onClick={() => onRSVP(event.id || event._id || 'temp-id', "interested")}
-                className={`w-full py-2 px-4 rounded-xl font-medium transition-all text-sm flex items-center justify-center ${
-                  event.userRSVP === 'interested'
-                    ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-400/30'
-                    : 'bg-gradient-to-r from-yellow-400/20 to-orange-400/20 text-yellow-300 border border-yellow-400/30 hover:bg-yellow-400/30'
-                }`}
-              >
-                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" />
-                </svg>
-                {event.userRSVP === 'interested' ? 'Interested ✓' : 'Mark Interested'}
-              </button>
-            </div>
-          )}
-          
-          {/* Show RSVP buttons for paid events */}
-          {(event.hasTickets && event.price > 0) && (
-            <div className="flex space-x-2">
-              <button
-                onClick={() => onRSVP(event.id || event._id || 'temp-id', "going")}
-                className={`flex-1 py-2 px-4 rounded-xl font-medium transition-all ${
-                  event.userRSVP === 'going'
-                    ? 'bg-green-500/20 text-green-400 border border-green-400/30'
-                    : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700'
-                }`}
-              >
-                {event.userRSVP === 'going' ? 'Going ✓' : 'Going'}
-              </button>
-              <button
-                onClick={() => onRSVP(event.id || event._id || 'temp-id', "interested")}
-                className={`flex-1 py-2 px-4 rounded-xl font-medium transition-all ${
-                  event.userRSVP === 'interested'
-                    ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-400/30'
-                    : 'bg-gradient-to-r from-yellow-400 to-yellow-500 text-black hover:from-yellow-500 hover:to-yellow-600'
-                }`}
-              >
-                {event.userRSVP === 'interested' ? 'Interested ✓' : 'Interested'}
-              </button>
-            </div>
-          )}
-          
-          {/* Premium Features Row */}
-          <div className="flex space-x-2 mb-2">
+          {/* Show interested button for all events */}
+          <div className="flex space-x-2">
             <button
-              onClick={isOfflineDownloaded ? () => setShowOfflineViewer(true) : handleOfflineDownload}
-              className={`flex-1 py-2 px-3 rounded-xl font-medium transition-all text-xs flex items-center justify-center ${
-                isOfflineDownloaded
+              onClick={() => onRSVP(event.id || event._id || 'temp-id', "interested")}
+              className={`w-full py-2 px-4 rounded-xl font-medium transition-all text-sm flex items-center justify-center ${
+                event.userRSVP === 'interested'
                   ? 'bg-[#DDAA52]/20 text-[#DDAA52] border border-[#DDAA52]/30'
-                  : 'bg-[#FB8B24]/20 text-[#FB8B24] border border-[#FB8B24]/30 hover:bg-[#FB8B24]/30'
+                  : 'bg-[#171717] text-[#DDAA52] border border-[#DDAA52]/30 hover:bg-[#DDAA52]/30'
               }`}
             >
               <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                {isOfflineDownloaded ? (
-                  <path fillRule="evenodd" d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                ) : (
-                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                )}
+                <path d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" />
               </svg>
-              {isOfflineDownloaded ? 'View Offline' : 'Download'}
+              {event.userRSVP === 'interested' ? 'Interested ✓' : 'Mark Interested'}
             </button>
+          </div>
+          
+          {/* Premium Features Row */}
+          <div className="flex space-x-2 mb-2">
             <CalendarDropdown event={event} />
+            {(event.flyerUrl || event.flyer_url) && (
+              <button
+                onClick={async () => {
+                  try {
+                    const response = await fetch(event.flyerUrl || event.flyer_url);
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `${event.title}-flyer.jpg`;
+                    link.click();
+                    window.URL.revokeObjectURL(url);
+                  } catch (error) {
+                    window.open(event.flyerUrl || event.flyer_url, '_blank');
+                  }
+                }}
+                className="flex-1 bg-[#FB8B24]/20 text-[#FB8B24] py-2 px-3 rounded-xl font-medium hover:bg-[#FB8B24]/30 transition-all text-xs border border-[#FB8B24]/30 flex items-center justify-center"
+              >
+                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+                Flyer
+              </button>
+            )}
             <button
               onClick={handleShareToGroup}
               className="flex-1 bg-[#A31818]/20 text-[#A31818] py-2 px-3 rounded-xl font-medium hover:bg-[#A31818]/30 transition-all text-xs border border-[#A31818]/30 flex items-center justify-center"
@@ -1615,11 +1918,11 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
               <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
               </svg>
-              Comments ({event.comments?.length || 0})
+              Comments ({comments.length})
             </button>
             <button
               onClick={() => setShowLocationMap(!showLocationMap)}
-              className="flex-1 bg-purple-500/20 text-purple-300 py-2 px-4 rounded-xl font-medium hover:bg-purple-500/30 transition-all text-sm border border-purple-400/30 flex items-center justify-center"
+              className="flex-1 bg-[#171717] text-[#DDAA52] py-2 px-4 rounded-xl font-medium hover:bg-[#DDAA52]/30 transition-all text-sm border border-[#DDAA52]/30 flex items-center justify-center"
             >
               <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
@@ -1645,7 +1948,7 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
           <div className="flex space-x-2 mb-2">
             <button
               onClick={loadSimilarEvents}
-              className="w-full bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-300 py-2 px-3 rounded-xl font-medium hover:from-indigo-500/30 hover:to-purple-500/30 transition-all text-xs border border-indigo-400/30 flex items-center justify-center"
+              className="w-full bg-[#171717] text-[#DDAA52] py-2 px-3 rounded-xl font-medium hover:bg-[#DDAA52]/30 transition-all text-xs border border-[#DDAA52]/30 flex items-center justify-center"
             >
               <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -1669,8 +1972,8 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
             <div className="mt-3 p-3 bg-white/5 rounded-xl border border-white/10">
               <h4 className="text-white/80 text-sm font-medium mb-2">Because you viewed this event:</h4>
               <div className="space-y-2">
-                {similarEvents.map((similar) => (
-                  <div key={similar._id} className="flex items-center space-x-3 p-2 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
+                {similarEvents.map((similar, index) => (
+                  <div key={`similar-${similar._id || similar.id || `temp-${index}`}`} className="flex items-center space-x-3 p-2 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
                     <div className="w-8 h-8 bg-gradient-to-r from-indigo-400 to-purple-500 rounded-lg flex items-center justify-center flex-shrink-0">
                       <span className="text-white text-xs font-bold">{similar.category[0]}</span>
                     </div>
@@ -1722,29 +2025,18 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
         {showComments && (
           <div className="mt-4 pt-4 border-t border-white/20">
             <div className="space-y-3 mb-4 max-h-32 overflow-y-auto">
-              {event.comments?.map((comment, index) => (
-                <div key={index} className="text-sm flex items-start space-x-2">
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
-                    {comment.avatar ? (
-                      <img 
-                        src={comment.avatar} 
-                        alt={comment.user}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          const target = e.currentTarget as HTMLImageElement;
-                          target.style.display = 'none';
-                          const fallback = target.nextElementSibling as HTMLElement;
-                          if (fallback) fallback.style.display = 'flex';
-                        }}
-                      />
-                    ) : null}
-                    <div className={`w-6 h-6 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full flex items-center justify-center ${comment.avatar ? 'hidden' : ''}`}>
-                      <span className="text-white text-xs font-bold">{comment.user[0]}</span>
-                    </div>
+              {comments.map((comment) => (
+                <div key={comment.id} className="text-sm flex items-start space-x-2">
+                  <div className="w-6 h-6 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-xs font-bold">
+                      {comment.users?.first_name?.[0] || 'U'}
+                    </span>
                   </div>
                   <div className="flex-1">
-                    <span className="text-white/80 font-medium">{comment.user}:</span>
-                    <span className="text-white/70 ml-2">{comment.text}</span>
+                    <span className="text-white/80 font-medium">
+                      {comment.users?.first_name} {comment.users?.last_name}:
+                    </span>
+                    <span className="text-white/70 ml-2">{comment.comment}</span>
                   </div>
                 </div>
               ))}
@@ -1759,13 +2051,14 @@ function PremiumEventCard({ event, onRSVP, onRate, onComment, currency }: {
                 className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 text-sm"
               />
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (newComment.trim()) {
-                    onComment(event.id || event._id || 'temp-id', newComment);
+                    await onComment(event.id || event._id || 'temp-id', newComment);
                     setNewComment('');
+                    fetchComments();
                   }
                 }}
-                className="px-4 py-2 bg-gradient-to-r from-yellow-400 to-yellow-500 text-black rounded-lg hover:from-yellow-500 hover:to-yellow-600 transition-colors text-sm font-medium flex items-center"
+                className="px-4 py-2 bg-[#FB8B24] text-black rounded-lg hover:bg-[#DDAA52] transition-colors text-sm font-medium flex items-center"
               >
                 <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />

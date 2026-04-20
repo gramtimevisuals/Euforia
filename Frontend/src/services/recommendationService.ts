@@ -2,7 +2,7 @@ import { API_URL } from '../config';
 
 export class RecommendationService {
   static async trackInteraction(eventId: string | number, type: 'click' | 'save' | 'share' | 'purchase' | 'dismiss', metadata?: any) {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (!token || !eventId) return;
 
     try {
@@ -28,7 +28,7 @@ export class RecommendationService {
   }
 
   static async getPersonalizedRecommendations(limit = 10) {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (!token) return [];
 
     try {
@@ -68,7 +68,7 @@ export class RecommendationService {
         const event = await response.json();
         
         // Find similar events by category
-        const similarResponse = await fetch(`${API_URL}/api/events/nearby?category=${event.category}&limit=${limit + 1}`);
+        const similarResponse = await fetch(`${API_URL}/api/events/nearby?latitude=0&longitude=0&category=${event.category}&limit=${limit + 1}`);
         if (similarResponse.ok) {
           const similar = await similarResponse.json();
           return similar.filter((e: any) => e.id !== eventId).slice(0, limit);

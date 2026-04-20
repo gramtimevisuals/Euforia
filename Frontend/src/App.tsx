@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Box, Flex, Button, Text, Badge, useColorModeValue, HStack, VStack, Alert, AlertIcon, AlertTitle, AlertDescription } from '@chakra-ui/react';
 import { Toaster } from 'sonner';
 import Homepage from './components/Homepage';
 import EventDiscovery from './components/EventDiscovery';
@@ -48,7 +49,6 @@ function App() {
         (error) => {
           console.log('Location access denied');
           setLocationPermission('denied');
-          // Don't set a dummy location - let the app handle no location gracefully
         }
       );
     } else {
@@ -62,7 +62,7 @@ function App() {
   };
 
   const handleUpgrade = async () => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     try {
       const response = await fetch(`${API_URL}/api/users/profile`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -71,6 +71,7 @@ function App() {
         const userData = await response.json();
         setUser(userData);
         localStorage.setItem('user', JSON.stringify(userData));
+        sessionStorage.setItem('user', JSON.stringify(userData));
         setCurrentView('events');
       }
     } catch (error) {
@@ -81,16 +82,34 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
     setUser(null);
     setCurrentView('events');
   };
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
-    
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const savedUser = localStorage.getItem('user') || sessionStorage.getItem('user');
+
     if (token && savedUser) {
-      setUser(JSON.parse(savedUser));
+      // Validate token with backend before trusting it
+      fetch(`${API_URL}/api/users/profile`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(res => {
+        if (res.ok) {
+          setUser(JSON.parse(savedUser));
+        } else {
+          // Token invalid or expired — clear everything and show login
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          sessionStorage.removeItem('token');
+          sessionStorage.removeItem('user');
+        }
+      }).catch(() => {
+        // Network error — still trust local token so app works offline
+        setUser(JSON.parse(savedUser));
+      });
     }
 
     if (userLocation) {
@@ -98,10 +117,20 @@ function App() {
         .then(() => setCurrency(currencyService.getCurrentCurrency()));
     }
     requestLocation();
+
+    const handleNavigateToCreate = () => setCurrentView('create');
+    const handleNavigateToEvents = () => setCurrentView('events');
+
+    window.addEventListener('navigateToCreate', handleNavigateToCreate);
+    window.addEventListener('navigateToEvents', handleNavigateToEvents);
+
+    return () => {
+      window.removeEventListener('navigateToCreate', handleNavigateToCreate);
+      window.removeEventListener('navigateToEvents', handleNavigateToEvents);
+    };
   }, []);
 
   const isAuthCallback = window.location.pathname === '/auth/callback';
-
   if (isAuthCallback) {
     return (
       <>
@@ -122,115 +151,128 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
-      <nav className="bg-white/10 backdrop-blur-md border-b border-white/20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-8">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8">
-                  {/* Logo placeholder - replace with your logo */}
-                </div>
-                <h1 className="text-2xl font-bold text-white">
+    <Box minH="100vh" bg="#000000">
+      <Box bg="whiteAlpha.100" backdropFilter="blur(10px)" borderBottom="1px" borderColor="whiteAlpha.200">
+        <Box maxW="7xl" mx="auto" px={[4, 6, 8]}>
+          <Flex justify="space-between" align="center" h={16} direction={['column', 'column', 'row']} py={[4, 4, 0]}>
+            <HStack spacing={[4, 6, 8]} mb={[2, 2, 0]}>
+              <HStack spacing={3}>
+                <Box w={8} h={8}>
+                  {/* Logo placeholder */}
+                </Box>
+                <Text fontSize={['lg', 'xl', '2xl']} fontWeight="bold" color="white">
                   Euforia
-                </h1>
-              </div>
-              <div className="flex space-x-4">
-                <button
+                </Text>
+              </HStack>
+              <HStack spacing={[1, 2, 4]} flexWrap="wrap">
+                <Button
                   onClick={() => setCurrentView('events')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                    currentView === 'events'
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/70 hover:text-white hover:bg-white/10'
-                  }`}
+                  variant={currentView === 'events' ? 'solid' : 'ghost'}
+                  colorScheme={currentView === 'events' ? 'whiteAlpha' : undefined}
+                  color={currentView === 'events' ? 'white' : 'whiteAlpha.700'}
+                  _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                  size={['xs', 'sm', 'sm']}
                 >
-                  Discover Events
-                </button>
-                <button
+                  Events
+                </Button>
+                <Button
                   onClick={() => setCurrentView('profile')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                    currentView === 'profile'
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/70 hover:text-white hover:bg-white/10'
-                  }`}
+                  variant={currentView === 'profile' ? 'solid' : 'ghost'}
+                  colorScheme={currentView === 'profile' ? 'whiteAlpha' : undefined}
+                  color={currentView === 'profile' ? 'white' : 'whiteAlpha.700'}
+                  _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                  size={['xs', 'sm', 'sm']}
                 >
                   Profile
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={() => setCurrentView('create')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                    currentView === 'create'
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/70 hover:text-white hover:bg-white/10'
-                  }`}
+                  variant={currentView === 'create' ? 'solid' : 'ghost'}
+                  colorScheme={currentView === 'create' ? 'whiteAlpha' : undefined}
+                  color={currentView === 'create' ? 'white' : 'whiteAlpha.700'}
+                  _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                  size={['xs', 'sm', 'sm']}
                 >
-                  Create Event
-                </button>
-                <button
+                  Create
+                </Button>
+                <Button
                   onClick={() => setCurrentView('settings')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                    currentView === 'settings'
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/70 hover:text-white hover:bg-white/10'
-                  }`}
+                  variant={currentView === 'settings' ? 'solid' : 'ghost'}
+                  colorScheme={currentView === 'settings' ? 'whiteAlpha' : undefined}
+                  color={currentView === 'settings' ? 'white' : 'whiteAlpha.700'}
+                  _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                  size={['xs', 'sm', 'sm']}
                 >
                   Settings
-                </button>
+                </Button>
                 {user.is_admin && (
-                  <button
+                  <Button
                     onClick={() => setCurrentView('admin')}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                      currentView === 'admin'
-                        ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
-                        : 'text-white/70 hover:text-white hover:bg-white/10'
-                    }`}
+                    variant={currentView === 'admin' ? 'solid' : 'ghost'}
+                    bgGradient={currentView === 'admin' ? 'linear(to-r, purple.500, pink.500)' : undefined}
+                    color={currentView === 'admin' ? 'white' : 'whiteAlpha.700'}
+                    _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                    size={['xs', 'sm', 'sm']}
                   >
                     Admin
-                  </button>
+                  </Button>
                 )}
-              </div>
-            </div>
+              </HStack>
+            </HStack>
             
-            <div className="flex items-center space-x-4">
-              <CurrencySelector onCurrencyChange={setCurrency} />
-              <span className="text-white/70">Welcome, {user.firstName}!</span>
-              <span className="px-3 py-1 text-black text-xs font-medium rounded-full flex items-center space-x-1 bg-gradient-to-r from-[#FB8B24] to-[#DDAA52] shadow-lg">
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                </svg>
-                <span>All Features</span>
-              </span>
-            </div>
-          </div>
-        </div>
-      </nav>
+            <HStack spacing={[2, 3, 4]} mt={[2, 2, 0]}>
+              <Text color="whiteAlpha.700" fontSize={['xs', 'sm', 'md']} display={['none', 'block', 'block']}>Welcome, {user.firstName}!</Text>
+              <Badge
+                px={[2, 3, 3]}
+                py={1}
+                color="black"
+                fontSize={['2xs', 'xs', 'xs']}
+                fontWeight="medium"
+                borderRadius="full"
+                bgGradient="linear(to-r, brand.500, accent.500)"
+                boxShadow="lg"
+              >
+                <HStack spacing={1}>
+                  <Box w={[2, 3, 3]} h={[2, 3, 3]} bg="currentColor" borderRadius="full" />
+                  <Text display={['none', 'block', 'block']}>All Features</Text>
+                  <Text display={['block', 'none', 'none']}>Pro</Text>
+                </HStack>
+              </Badge>
+            </HStack>
+          </Flex>
+        </Box>
+      </Box>
 
       {locationPermission === 'denied' && (
-        <div className="bg-pink-100 border-b border-pink-300 p-4">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <svg className="w-6 h-6 text-pink-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-              </svg>
-              <div>
-                <p className="text-black font-medium">Location Access Needed</p>
-                <p className="text-black/70 text-sm">Enable location to discover events near you</p>
-              </div>
-            </div>
-            <button
-              onClick={requestLocation}
-              className="bg-gradient-to-r from-pink-400 to-rose-500 text-white px-4 py-2 rounded-lg hover:from-pink-500 hover:to-rose-600 transition-all shadow-lg flex items-center space-x-2"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-              </svg>
-              <span>Enable Location</span>
-            </button>
-          </div>
-        </div>
+        <Alert status="warning" bg="pink.100" borderBottom="1px" borderColor="pink.300">
+          <Box maxW="7xl" mx="auto" w="full">
+            <Flex justify="space-between" align="center">
+              <HStack spacing={3}>
+                <AlertIcon color="pink.500" />
+                <VStack align="start" spacing={0}>
+                  <AlertTitle color="black" fontWeight="medium">Location Access Needed</AlertTitle>
+                  <AlertDescription color="blackAlpha.700" fontSize="sm">
+                    Enable location to discover events near you
+                  </AlertDescription>
+                </VStack>
+              </HStack>
+              <Button
+                onClick={requestLocation}
+                bgGradient="linear(to-r, pink.400, red.500)"
+                color="white"
+                _hover={{ bgGradient: 'linear(to-r, pink.500, red.600)' }}
+                boxShadow="lg"
+                size="sm"
+                leftIcon={<Box w={3} h={3} bg="currentColor" borderRadius="full" />}
+              >
+                Enable Location
+              </Button>
+            </Flex>
+          </Box>
+        </Alert>
       )}
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <Box as="main" maxW="7xl" mx="auto" px={[4, 6, 8]} py={8}>
         {currentView === 'events' && (
           <EventDiscovery 
             userLocation={userLocation} 
@@ -244,15 +286,15 @@ function App() {
           <CreateEvent />
         )}
         {currentView === 'settings' && (
-          <SettingsScreen user={user} onUpgrade={handleUpgrade} />
+          <SettingsScreen user={user} onUpgrade={handleUpgrade} onLogout={handleLogout} />
         )}
         {currentView === 'admin' && user.is_admin && (
           <AdminDashboard />
         )}
-      </main>
+      </Box>
 
       <Toaster position="top-right" />
-    </div>
+    </Box>
   );
 }
 

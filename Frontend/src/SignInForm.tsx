@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { API_URL } from './config';
-import { supabase } from './lib/supabase';
+import { AuthService } from './services/authService';
 import { ForgotPasswordForm } from './components/ForgotPasswordForm';
 
 interface SignInFormProps {
@@ -12,23 +12,8 @@ export function SignInForm({ onAuthSuccess }: SignInFormProps) {
   const [flow, setFlow] = useState<"signIn" | "signUp" | "forgotPassword">("signIn");
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSocialAuth = async (provider: 'google' | 'facebook' | 'apple') => {
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: provider as any,
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`
-        }
-      })
-      
-      if (error) {
-        console.error('OAuth error:', error)
-        toast.error(`${provider.charAt(0).toUpperCase() + provider.slice(1)} login failed`)
-      }
-    } catch (error) {
-      console.error('OAuth error:', error)
-      toast.error('Authentication failed')
-    }
+  const handleSocialAuth = (provider: 'google' | 'facebook' | 'apple') => {
+    AuthService.signInWithOAuth(provider);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
