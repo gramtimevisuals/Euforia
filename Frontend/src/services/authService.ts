@@ -30,7 +30,8 @@ export class AuthService {
 
   static async handleOAuthCallback() {
     try {
-      const { data: { session, user }, error } = await supabase.auth.getSession();
+      const { data: { session }, error } = await supabase.auth.getSession();
+      const user = session?.user;
       
       if (error) throw error;
       if (!session || !user) return { user: null, error: 'No session found' };
