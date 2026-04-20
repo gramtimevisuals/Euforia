@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const { createClient } = require('@supabase/supabase-js');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 
@@ -29,20 +28,13 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Supabase connection
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
-);
-
-// Service role client for admin operations (bypasses RLS)
-const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY 
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-  : supabase;
+// Neon database client (Supabase-compatible API)
+const { buildClient } = require('./db');
+const supabase = buildClient(require('./db').pool);
 
 // Make supabase available to routes
 app.set('supabase', supabase);
-app.set('supabaseAdmin', supabaseAdmin);
+app.set('supabaseAdmin', supabase);
 
 // WebSocket connection handling
 const Message = require('./models/Message');
